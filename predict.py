@@ -1,33 +1,43 @@
-"""Predict a digit from a custom image using the trained MNIST CNN."""
+"""Predict a handwritten digit using the trained PyTorch MNIST CNN."""
 import argparse
+from pathlib import Path
 
 import numpy as np
-import tensorflow as tf
 from PIL import Image, ImageOps
+import torch
+from torchvision import transforms
+
+from train import MNISTCNN
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Predict one handwritten digit from an image."
-    )
+    parser = argparse.ArgumentParser(description="Predict a handwritten digit.")
     parser.add_argument("image", help="Path to an image containing one digit")
-    parser.add_argument(
-        "--model", default="mnist_cnn.keras", help="Saved Keras model path"
-    )
+    parser.add_argument("--model", default="mnist_cnn.pth", help="Model weights path")
     args = parser.parse_args()
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model_path = Path(args.model)
+    if not model_path.exists():
+        raise FileNotFoundError(
+            f"Model weights not found: {model_path}. Run python train.py first."
+        )
 
     image = Image.open(args.image).convert("L")
     image = ImageOps.invert(image)
     image = ImageOps.fit(image, (28, 28))
-    array = np.asarray(image, dtype="float32") / 255.0
-    array = array.reshape(1, 28, 28, 1)
+    tensor = transforms.ToTensor()(np.asarray(image)).unsqueeze(0).to(device)
 
-    model = tf.keras.models.load_model(args.model)
-    probabilities = model.predict(array, verbose=0)[0]
-    digit = int(np.argmax(probabilities))
+    model = MNISTCNN().to(device)
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.eval()
 
-    print(f"Predicted digit: {digit}")
-    print(f"Confidence: {probabilities[digit]:.2%}")
+    with torch.no_grad():
+        probabilities = torch.softmax(model(tensor), dim=1)[0]
+        confidence, digit = probabilities.max(dim=0)
+
+    print(f"Predicted digit: {digit.item()}")
+    print(f"Confidence: {confidence.item():.2%}")
 
 
 if __name__ == "__main__":

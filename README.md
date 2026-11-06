@@ -1,20 +1,32 @@
-# Handwritten Digit Recognition using CNN (MNIST) — PyTorch + Streamlit
+# Handwritten Digit and Multi-Digit Sequence Recognition
 
-A PyTorch CNN that recognizes handwritten digits (0–9) from MNIST. Draw a digit in the Streamlit app and get the model's top 3 predictions with confidence scores.
+A PyTorch CNN trained on MNIST with a Streamlit interface for recognizing one digit or a sequence of separated handwritten digits. You can draw digits on the canvas or upload an image. The app segments the image from left to right, preprocesses each digit, and predicts each one independently.
 
 ## Features
 
-- MNIST CNN with two convolutional layers
+- Recognizes individual digits (0–9) and multi-digit sequences such as `12345`
+- Draw handwritten digits on a large Streamlit canvas or upload a PNG/JPG image
+- Segments separate, non-touching digits and orders them from left to right
+- Applies MNIST-style preprocessing to every digit: grayscale conversion, thresholding, cropping, aspect-ratio-preserving resize, centering and 28×28 normalization
+- Shows the complete predicted sequence
+- Shows the top 3 digit predictions and confidence percentages for each position
+- Separate **Predict all digits** and **Clear / reset** controls
+- CNN training with data augmentation (rotation, translation, scaling and shear)
 - Intel XPU support, then NVIDIA CUDA, then CPU fallback
-- Training-time data augmentation (small rotations, shifts, scaling and shear)
-- Drawing canvas or image upload for multiple handwritten digits
-- Connected-component segmentation that splits separated digits and processes them left-to-right
-- Per-digit top 3 predictions with confidence percentages
-- Separate **Predict all digits** and **Clear / reset** buttons
-- MNIST-style preprocessing: invert, threshold, crop, preserve aspect ratio, center and convert to 28×28
-- Top 3 predicted digits and confidence percentages
 
-## CNN architecture
+## How multi-digit recognition works
+
+1. Draw or upload an image containing multiple digits.
+2. The app converts the image into a foreground mask and detects connected components.
+3. Each detected component is cropped, resized proportionally and centered on a 28×28 grayscale image.
+4. The CNN predicts each crop independently.
+5. Predictions are sorted left-to-right and combined into a sequence.
+
+For example, an input containing five clearly separated digits may produce a sequence such as `12345`. This is an illustration of the output format, not a guaranteed prediction.
+
+**Segmentation limitation:** The current approach relies on connected components. Digits that touch or overlap can be treated as one component. Disconnected marks belonging to one digit may be treated as separate components. Leave clear gaps between digits for best results.
+
+## Model architecture
 
 | Layer | Configuration |
 |---|---|
@@ -26,6 +38,19 @@ A PyTorch CNN that recognizes handwritten digits (0–9) from MNIST. Draw a digi
 | Flatten | 3,136 features |
 | Dense hidden | 128 neurons, ReLU, Dropout |
 | Output | 10 digit classes |
+
+## Accuracy and evaluation
+
+The repository's recorded baseline metrics in `outputs/metrics.json` are:
+
+| Evaluation | Result |
+|---|---:|
+| MNIST test accuracy (previous baseline) | **99.27%** |
+| MNIST test loss (previous baseline) | **0.02213** |
+
+**How to interpret this score:** 99.27% is the previously recorded accuracy for classifying individual MNIST test images. It is not a measured accuracy for complete multi-digit sequences. Sequence-level accuracy (the percentage of entire strings where every digit is correct) has not yet been measured. The augmentation changes also need to be trained locally before a new accuracy can be reported.
+
+After training, `train.py` writes updated test metrics to `outputs/metrics.json`, along with an accuracy curve, loss curve and confusion matrix. Use those new metrics rather than assuming the previous baseline still applies.
 
 ## Windows setup
 
@@ -55,33 +80,35 @@ Install the remaining dependencies:
 python -m pip install -r requirements.txt
 ```
 
-**Intel GPU note:** PyTorch XPU support depends on the exact processor/GPU and driver. The scripts automatically fall back to CPU if no supported accelerator is detected.
+PyTorch XPU support depends on the exact processor/GPU and driver. The scripts automatically fall back to CPU if no supported accelerator is detected.
 
-## Train the improved model
+## Train the model
 
-Run this after pulling the latest code. It downloads MNIST, applies augmentation to training images only, trains the CNN, evaluates on untouched test images, and saves the best validation checkpoint as `mnist_cnn.pth`.
+Run this after pulling the latest code. The script downloads MNIST, applies augmentation to training images only, trains the CNN, evaluates it on untouched test images, and saves the best validation checkpoint as `mnist_cnn.pth`.
 
 ```powershell
 python train.py
 ```
 
-Training can take some time. Wait until it prints the test accuracy and confirms the model weights have been saved. It also writes metrics and plots into `outputs/`.
+Wait for training to finish. The script prints test accuracy and saves model weights and evaluation outputs. Training can take some time.
 
-**Important:** The retrained `mnist_cnn.pth` file is created on your computer and is ignored by Git. You must run `python train.py` locally before starting the app; the previous weights should not be treated as the augmented model.
+**Important:** `mnist_cnn.pth` is generated on your computer and is ignored by Git. Run `python train.py` locally before starting the app if you need to create the model weights. The updated augmented-model accuracy cannot be known until this training run finishes.
 
-## Launch the drawing app
-
-After training completes:
+## Launch the Streamlit app
 
 ```powershell
 streamlit run streamlit_app.py
 ```
 
-Choose **Draw digits** or **Upload image**. Enter an image with two or more separated, non-touching digits, then click **Predict all digits**. The app uses connected-component segmentation to find each digit, sorts them from left to right, normalizes each crop to 28×28, and predicts each one independently. It displays the recognized sequence and top 3 alternatives for every digit. Click **Clear / reset** to start again.
+Select **Draw digits** or **Upload image**. Write two or more digits with visible gaps, then click **Predict all digits**. The app displays the recognized sequence and the top 3 alternatives with confidence percentages for each detected digit. Click **Clear / reset** to start again.
 
-For best results, use dark digits on a light background, keep visible gaps between digits, and avoid touching or overlapping strokes. Connected-component segmentation cannot reliably split digits that touch, and a disconnected stroke within one digit may be treated as a separate component.
+For best results:
+- Use dark, solid strokes on a light background.
+- Keep digits separated and avoid touching or overlapping strokes.
+- Make digits reasonably large and fully visible in the input area.
+- Avoid stray marks or detached strokes.
 
-## Predict from an image file (optional)
+## Command-line prediction (single image)
 
 ```powershell
 python predict.py path\to\digit.png
@@ -91,14 +118,10 @@ python predict.py path\to\digit.png
 
 - `train.py` — CNN architecture, augmented training, evaluation and plots
 - `predict.py` — command-line prediction from an image file
-- `streamlit_app.py` — drawing UI, preprocessing, Predict/Clear buttons and top-3 predictions
-- `requirements.txt` — dependencies (PyTorch installed separately as above)
-- `outputs/` — metrics and evaluation plots generated during training
+- `streamlit_app.py` — drawing/upload UI, multi-digit segmentation, preprocessing and top-3 predictions
+- `requirements.txt` — Python dependencies (install PyTorch separately as described above)
+- `outputs/` — training metrics and evaluation plots generated locally
 - `mnist_cnn.pth` — trained model weights generated locally
-
-## Recorded previous baseline
-
-The earlier committed `outputs/metrics.json` reported 99.27% test accuracy before the new augmentation changes. The augmented model will produce new metrics when you run `train.py`; do not assume the old score applies to the new weights.
 
 ## References
 

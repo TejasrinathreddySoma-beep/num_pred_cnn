@@ -1,6 +1,7 @@
-"""Train an EMNIST ByClass CNN for digits, uppercase and lowercase letters."""
+"""Train an EMNIST ByClass CNN with an Intel XPU-friendly input pipeline."""
 from pathlib import Path
 import json
+import os
 import random
 
 import matplotlib.pyplot as plt
@@ -8,18 +9,38 @@ import numpy as np
 import torch
 from PIL import Image
 from torch import nn
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms
-from sklearn.metrics import ConfusionMatrixDisplay, classification_report
+from sklearn.metrics import classification_report
 
 SEED = 42
-BATCH_SIZE = 256
+BATCH_SIZE = 512
 EPOCHS = 15
+NUM_WORKERS = 2
 MODEL_PATH = Path("emnist_byclass_cnn.pth")
 OUTPUT_DIR = Path("outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
 CLASS_NAMES = list("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
 NUM_CLASSES = len(CLASS_NAMES)
+
+
+class EMNISTView(Dataset):
+    """Apply different transforms to indexed views of one shared EMNIST dataset."""
+    def __init__(self, source, indices, transform):
+        self.source = source
+        self.indices = indices
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, position):
+        source_index = int(self.indices[position])
+        image = Image.fromarray(self.source.data[source_index].numpy())
+        if self.transform is not None:
+            image = self.transform(image)
+        label = int(self.source.targets[source_index])
+        return image, label
 
 
 def get_device():
@@ -61,12 +82,30 @@ class EMNISTCNN(nn.Module):
         return self.classifier(self.features(x))
 
 
+def make_loader(dataset, *, shuffle, device):
+    # Two workers overlap CPU image augmentation/loading with XPU computation.
+    # Set EMNIST_WORKERS=0 if Windows runs short of RAM.
+    workers = max(0, int(os.environ.get("EMNIST_WORKERS", NUM_WORKERS)))
+    options = {
+        "dataset": dataset,
+        "batch_size": BATCH_SIZE,
+        "shuffle": shuffle,
+        "num_workers": workers,
+        "pin_memory": False,
+    }
+    if workers > 0:
+        options["persistent_workers"] = True
+        options["prefetch_factor"] = 2
+    return DataLoader(**options)
+
+
 def run_epoch(model, loader, criterion, device, optimizer=None):
     training = optimizer is not None
     model.train(training)
     total_loss, correct, total = 0.0, 0, 0
     for images, labels in loader:
-        images, labels = images.to(device), labels.to(device)
+        images = images.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
         if training:
             optimizer.zero_grad(set_to_none=True)
         with torch.set_grad_enabled(training):
@@ -91,9 +130,11 @@ def main():
         torch.xpu.manual_seed_all(SEED)
 
     device = get_device()
+    print(f"Batch size: {BATCH_SIZE} | DataLoader workers: {NUM_WORKERS}")
 
-    # EMNIST source images need a transpose to display in normal upright
-    # orientation. Apply the same correction to train, validation and test.
+    # Keep only ONE copy of the large EMNIST training dataset in memory.
+    # Separate views apply augmentation to training and deterministic transforms
+    # to validation without loading a second copy of the training images.
     orientation_fix = transforms.Lambda(
         lambda image: image.transpose(Image.Transpose.TRANSPOSE)
     )
@@ -112,27 +153,22 @@ def main():
 
     train_source = datasets.EMNIST(
         "data", split="byclass", train=True, download=True,
-        transform=train_transform,
     )
-    evaluation_source = datasets.EMNIST(
-        "data", split="byclass", train=True, download=True,
-        transform=evaluation_transform,
-    )
-    test_dataset = datasets.EMNIST(
+    test_source = datasets.EMNIST(
         "data", split="byclass", train=False, download=True,
-        transform=evaluation_transform,
     )
 
     generator = torch.Generator().manual_seed(SEED)
-    permutation = torch.randperm(len(train_source), generator=generator).tolist()
+    permutation = torch.randperm(len(train_source), generator=generator)
     split_at = int(len(permutation) * 0.9)
     train_indices, val_indices = permutation[:split_at], permutation[split_at:]
-    train_dataset = Subset(train_source, train_indices)
-    val_dataset = Subset(evaluation_source, val_indices)
+    train_dataset = EMNISTView(train_source, train_indices, train_transform)
+    val_dataset = EMNISTView(train_source, val_indices, evaluation_transform)
+    test_dataset = EMNISTView(test_source, range(len(test_source)), evaluation_transform)
 
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    train_loader = make_loader(train_dataset, shuffle=True, device=device)
+    val_loader = make_loader(val_dataset, shuffle=False, device=device)
+    test_loader = make_loader(test_dataset, shuffle=False, device=device)
 
     model = EMNISTCNN().to(device)
     criterion = nn.CrossEntropyLoss()
@@ -173,7 +209,7 @@ def main():
     all_predictions, all_labels = [], []
     with torch.no_grad():
         for images, labels in test_loader:
-            logits = model(images.to(device))
+            logits = model(images.to(device, non_blocking=True))
             all_predictions.extend(logits.argmax(1).cpu().numpy())
             all_labels.extend(labels.numpy())
 
@@ -190,6 +226,8 @@ def main():
             "test_loss": test_loss,
             "test_accuracy": test_accuracy,
             "best_validation_accuracy": best_val_accuracy,
+            "batch_size": BATCH_SIZE,
+            "dataloader_workers": NUM_WORKERS,
             "augmentation": "RandomAffine: rotation 10 degrees, translation 8%, scale 0.90-1.10, shear 5 degrees",
         }, file, indent=2)
 

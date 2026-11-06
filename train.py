@@ -16,12 +16,17 @@ from sklearn.metrics import classification_report
 SEED = 42
 BATCH_SIZE = 512
 EPOCHS = 15
-NUM_WORKERS = 2
+NUM_WORKERS = max(0, int(os.environ.get("EMNIST_WORKERS", "2")) )
 MODEL_PATH = Path("emnist_byclass_cnn.pth")
 OUTPUT_DIR = Path("outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
 CLASS_NAMES = list("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
 NUM_CLASSES = len(CLASS_NAMES)
+
+
+def transpose_emnist(image):
+    """Correct raw EMNIST orientation; top-level for Windows worker pickling."""
+    return image.transpose(Image.Transpose.TRANSPOSE)
 
 
 class EMNISTView(Dataset):
@@ -85,7 +90,7 @@ class EMNISTCNN(nn.Module):
 def make_loader(dataset, *, shuffle, device):
     # Two workers overlap CPU image augmentation/loading with XPU computation.
     # Set EMNIST_WORKERS=0 if Windows runs short of RAM.
-    workers = max(0, int(os.environ.get("EMNIST_WORKERS", NUM_WORKERS)))
+    workers = NUM_WORKERS
     options = {
         "dataset": dataset,
         "batch_size": BATCH_SIZE,
@@ -135,9 +140,7 @@ def main():
     # Keep only ONE copy of the large EMNIST training dataset in memory.
     # Separate views apply augmentation to training and deterministic transforms
     # to validation without loading a second copy of the training images.
-    orientation_fix = transforms.Lambda(
-        lambda image: image.transpose(Image.Transpose.TRANSPOSE)
-    )
+    orientation_fix = transforms.Lambda(transpose_emnist)
     train_transform = transforms.Compose([
         orientation_fix,
         transforms.RandomAffine(

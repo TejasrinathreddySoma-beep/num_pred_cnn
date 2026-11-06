@@ -1,30 +1,29 @@
-# Handwritten Digit and Multi-Digit Sequence Recognition
+# Handwritten Digit & Alphabet Recognition (EMNIST ByClass)
 
-A PyTorch CNN trained on MNIST with a Streamlit interface for recognizing one digit or a sequence of separated handwritten digits. You can draw digits on the canvas or upload an image. The app segments the image from left to right, preprocesses each digit, and predicts each one independently.
+A PyTorch CNN and Streamlit application for recognizing handwritten digits and English letters. The model is trained on **EMNIST ByClass**, which has 62 classes: digits 0–9, uppercase A–Z, and lowercase a–z. The app supports drawing or uploading a sequence of separated characters and predicts each character from left to right.
 
 ## Features
 
-- Recognizes individual digits (0–9) and multi-digit sequences such as `12345`
-- Draw handwritten digits on a large Streamlit canvas or upload a PNG/JPG image
-- Segments separate, non-touching digits and orders them from left to right
-- Applies MNIST-style preprocessing to every digit: grayscale conversion, thresholding, cropping, aspect-ratio-preserving resize, centering and 28×28 normalization
-- Shows the complete predicted sequence
-- Shows the top 3 digit predictions and confidence percentages for each position
-- Separate **Predict all digits** and **Clear / reset** controls
-- CNN training with data augmentation (rotation, translation, scaling and shear)
-- Intel XPU support, then NVIDIA CUDA, then CPU fallback
+- 62 output classes: 10 digits + 26 uppercase letters + 26 lowercase letters
+- Multi-character sequences such as `A7b2` or `hello` (characters should be separated)
+- Streamlit drawing canvas and image upload
+- Connected-component segmentation and left-to-right character ordering
+- Per-character top 3 predictions and confidence percentages
+- Character preprocessing to grayscale 28×28 inputs
+- Training-time augmentation (small rotations, shifts, scaling and shear)
+- Intel XPU, NVIDIA CUDA, or CPU device selection
 
-## How multi-digit recognition works
+## Dataset and class mapping
 
-1. Draw or upload an image containing multiple digits.
-2. The app converts the image into a foreground mask and detects connected components.
-3. Each detected component is cropped, resized proportionally and centered on a 28×28 grayscale image.
-4. The CNN predicts each crop independently.
-5. Predictions are sorted left-to-right and combined into a sequence.
+This project uses the torchvision **EMNIST ByClass** split. Its 62 labels are mapped in this order:
 
-For example, an input containing five clearly separated digits may produce a sequence such as `12345`. This is an illustration of the output format, not a guaranteed prediction.
+| Class IDs | Characters |
+|---|---|
+| 0–9 | `0 1 2 3 4 5 6 7 8 9` |
+| 10–35 | `A` through `Z` |
+| 36–61 | `a` through `z` |
 
-**Segmentation limitation:** The current approach relies on connected components. Digits that touch or overlap can be treated as one component. Disconnected marks belonging to one digit may be treated as separate components. Leave clear gaps between digits for best results.
+Uppercase and lowercase letters are separate classes. Some characters look very similar (for example, `C/c`, `O/o`, and `P/p`), so per-character predictions can be uncertain. The EMNIST images are transposed into upright orientation consistently during training and evaluation.
 
 ## Model architecture
 
@@ -37,20 +36,13 @@ For example, an input containing five clearly separated digits may produce a seq
 | Max pooling | 2×2 |
 | Flatten | 3,136 features |
 | Dense hidden | 128 neurons, ReLU, Dropout |
-| Output | 10 digit classes |
+| Output | 62 classes |
 
-## Accuracy and evaluation
+## Accuracy
 
-The repository's recorded baseline metrics in `outputs/metrics.json` are:
+The old **99.27%** result was measured on MNIST digits only. It does **not** apply to the new EMNIST model, which recognizes 62 digit/letter classes. No EMNIST accuracy is claimed before you run the new training script.
 
-| Evaluation | Result |
-|---|---:|
-| MNIST test accuracy (previous baseline) | **99.27%** |
-| MNIST test loss (previous baseline) | **0.02213** |
-
-**How to interpret this score:** 99.27% is the previously recorded accuracy for classifying individual MNIST test images. It is not a measured accuracy for complete multi-digit sequences. Sequence-level accuracy (the percentage of entire strings where every digit is correct) has not yet been measured. The augmentation changes also need to be trained locally before a new accuracy can be reported.
-
-After training, `train.py` writes updated test metrics to `outputs/metrics.json`, along with an accuracy curve, loss curve and confusion matrix. Use those new metrics rather than assuming the previous baseline still applies.
+After training, the script prints the EMNIST ByClass test accuracy and writes the measured results to `outputs/emnist_metrics.json`. This is per-character test accuracy, not complete-sequence accuracy.
 
 ## Windows setup
 
@@ -62,13 +54,13 @@ py -3.11 -m venv .venv
 python -m pip install --upgrade pip
 ```
 
-Install PyTorch. For a supported Intel GPU, install the XPU wheels:
+For a supported Intel GPU, install the PyTorch XPU wheels:
 
 ```powershell
 python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/xpu
 ```
 
-For CPU-only instead, use:
+For CPU-only PyTorch, use:
 
 ```powershell
 python -m pip install torch torchvision torchaudio
@@ -80,51 +72,58 @@ Install the remaining dependencies:
 python -m pip install -r requirements.txt
 ```
 
-PyTorch XPU support depends on the exact processor/GPU and driver. The scripts automatically fall back to CPU if no supported accelerator is detected.
+PyTorch XPU support depends on your exact Intel processor/GPU and driver. The training script falls back to CPU if no supported accelerator is available.
 
-## Train the model
+## Train the new EMNIST model
 
-Run this after pulling the latest code. The script downloads MNIST, applies augmentation to training images only, trains the CNN, evaluates it on untouched test images, and saves the best validation checkpoint as `mnist_cnn.pth`.
+Pull the latest repository changes, then run:
 
 ```powershell
 python train.py
 ```
 
-Wait for training to finish. The script prints test accuracy and saves model weights and evaluation outputs. Training can take some time.
+The first run downloads EMNIST ByClass. It trains with augmentation, uses a validation split for early stopping, evaluates on the official test split, and saves:
 
-**Important:** `mnist_cnn.pth` is generated on your computer and is ignored by Git. Run `python train.py` locally before starting the app if you need to create the model weights. The updated augmented-model accuracy cannot be known until this training run finishes.
+- `emnist_byclass_cnn.pth` — new 62-class model weights
+- `outputs/emnist_metrics.json` — measured test loss and accuracy
+- `outputs/emnist_accuracy_curve.png` and `outputs/emnist_loss_curve.png` — training curves
 
-## Launch the Streamlit app
+**Training note:** EMNIST ByClass is much larger than MNIST (nearly 700,000 training examples), so training can take considerably longer. Keep the terminal open until it reports the test accuracy and saved model. The model file is generated locally and is ignored by Git.
+
+## Run the Streamlit app
+
+After training completes:
 
 ```powershell
 streamlit run streamlit_app.py
 ```
 
-Select **Draw digits** or **Upload image**. Write two or more digits with visible gaps, then click **Predict all digits**. The app displays the recognized sequence and the top 3 alternatives with confidence percentages for each detected digit. Click **Clear / reset** to start again.
+Choose **Draw characters** or **Upload image**. Write digits and/or letters with visible gaps, then click **Predict sequence**. The app shows the combined predicted string and the top 3 alternatives for every detected character. Use **Clear / reset** to start again.
 
-For best results:
-- Use dark, solid strokes on a light background.
-- Keep digits separated and avoid touching or overlapping strokes.
-- Make digits reasonably large and fully visible in the input area.
-- Avoid stray marks or detached strokes.
+### Segmentation limitations
 
-## Command-line prediction (single image)
+The current sequence reader uses connected components. Characters that touch or overlap may be grouped into one region. Dots on lowercase `i` and `j`, or detached strokes, may be treated as separate components. Leave a visible gap between characters. This first version is intended for separated handwritten characters, not cursive handwriting or joined-up words.
+
+## Command-line prediction
+
+For one character per image:
 
 ```powershell
-python predict.py path\to\digit.png
+python predict.py path\to\character.png
 ```
 
 ## Project files
 
-- `train.py` — CNN architecture, augmented training, evaluation and plots
-- `predict.py` — command-line prediction from an image file
-- `streamlit_app.py` — drawing/upload UI, multi-digit segmentation, preprocessing and top-3 predictions
-- `requirements.txt` — Python dependencies (install PyTorch separately as described above)
-- `outputs/` — training metrics and evaluation plots generated locally
-- `mnist_cnn.pth` — trained model weights generated locally
+- `train.py` — EMNIST ByClass dataset, 62-class CNN, augmentation, training and evaluation
+- `predict.py` — command-line prediction for one character
+- `streamlit_app.py` — drawing/upload interface, segmentation and sequence prediction
+- `requirements.txt` — Python dependencies (install PyTorch separately)
+- `outputs/emnist_metrics.json` — generated evaluation metrics
+- `emnist_byclass_cnn.pth` — locally generated trained model weights
 
 ## References
 
-- [MNIST dataset](https://pytorch.org/vision/stable/datasets.html#mnist)
+- [EMNIST dataset paper and information](https://www.nist.gov/itl/products-and-services/emnist-dataset)
+- [Torchvision EMNIST documentation](https://pytorch.org/vision/stable/generated/torchvision.datasets.EMNIST.html)
 - [PyTorch Intel GPU guide](https://docs.pytorch.org/docs/stable/notes/get_start_xpu.html)
 - [Streamlit documentation](https://docs.streamlit.io/)

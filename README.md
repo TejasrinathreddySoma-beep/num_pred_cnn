@@ -127,3 +127,40 @@ python predict.py path\to\character.png
 - [Torchvision EMNIST documentation](https://pytorch.org/vision/stable/generated/torchvision.datasets.EMNIST.html)
 - [PyTorch Intel GPU guide](https://docs.pytorch.org/docs/stable/notes/get_start_xpu.html)
 - [Streamlit documentation](https://docs.streamlit.io/)
+
+
+## Experimental: IAM handwritten line recognition (CNN + BiLSTM + CTC)
+
+A separate line-level recognizer is being added without replacing the existing EMNIST character model. It converts line images to grayscale, extracts visual features with a CNN, models the left-to-right character sequence with a bidirectional LSTM, and uses CTC loss so characters do not need to be segmented individually.
+
+### IAM dataset setup
+
+1. Register for and download the **IAM Handwriting Database — Lines** images and the ASCII annotation/split files from the official IAM website: https://fki.tic.heia-fr.ch/databases/iam-handwriting-database
+2. Extract the files so the project has this structure (the script accepts either root-level annotation files or the common `ascii/` subfolder):
+
+```text
+data/iam/
+  lines/
+    a01/a01-000u/a01-000u-00.png
+  lines.txt                 # or ascii/lines.txt
+  trainset.txt              # or ascii/sets/trainset.txt
+  validationset1.txt        # or ascii/sets/validationset1.txt
+  testset.txt               # or ascii/sets/testset.txt
+```
+
+Keep the IAM images and annotations out of Git; the dataset is large and has its own access terms. The training script expects the IAM line-image IDs and transcription fields from the official files.
+
+### Train the IAM line model
+
+```powershell
+python train_iam.py
+```
+
+The script uses grayscale conversion and contrast normalization, trains a CNN-BiLSTM with CTC loss, selects the best checkpoint using validation character error rate (CER), and evaluates the held-out test split. It saves `iam_crnn_ctc.pth`. This is a separate model from `emnist_byclass_cnn.pth`.
+
+**Hardware note:** Start with the default small batch size. Sequence models use more memory than the old character classifier. Intel XPU operator support can vary by PyTorch version; if an operation is unsupported on XPU, run this experimental training script on CPU or use a compatible PyTorch XPU build.
+
+### New files
+
+- `iam_model.py` — CNN + bidirectional LSTM + CTC model and greedy decoder
+- `train_iam.py` — IAM line dataset loader, grayscale preprocessing, training and CER evaluation

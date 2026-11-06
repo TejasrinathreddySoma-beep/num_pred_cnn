@@ -21,7 +21,7 @@ from iam_model import CHAR_TO_ID, IAMCRNN, greedy_decode
 DATA_ROOT = Path("data/iam")
 IMAGE_HEIGHT = 64
 MAX_WIDTH = 1600
-BATCH_SIZE = 8
+BATCH_SIZE = 4
 EPOCHS = 30
 LEARNING_RATE = 1e-3
 WORKERS = 0  # Safe default for Windows; increase only if memory permits.
@@ -82,7 +82,7 @@ class IAMLineDataset(Dataset):
     def __init__(self, root, ids, annotations):
         self.root = root
         self.samples = [
-            (line_id, annotations[line_id])
+            (line_id, annotations[line_id].replace("|", " "))
             for line_id in ids
             if line_id in annotations and line_image_path(root, line_id).is_file()
         ]

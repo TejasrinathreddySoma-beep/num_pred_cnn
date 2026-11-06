@@ -140,8 +140,7 @@ A separate line-level recognizer is being added without replacing the existing E
 
 ```text
 data/iam/
-  lines/
-    a01/a01-000u/a01-000u-00.png
+  a01/a01-000u/a01-000u-00.png  # or lines/a01/a01-000u/... 
   lines.txt                 # or ascii/lines.txt
   trainset.txt              # or ascii/sets/trainset.txt
   validationset1.txt        # or ascii/sets/validationset1.txt
@@ -149,6 +148,44 @@ data/iam/
 ```
 
 Keep the IAM images and annotations out of Git; the dataset is large and has its own access terms. The training script expects the IAM line-image IDs and transcription fields from the official files.
+
+### macOS setup (Apple Silicon: M1/M2/M3/M4)
+
+Create an ARM-native Python environment (Python 3.11 or 3.12 is a good choice):
+
+```bash
+xcode-select --install
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install torch torchvision torchaudio
+python -m pip install -r requirements.txt
+```
+
+Verify that PyTorch can see the Apple GPU:
+
+```bash
+python -c "import torch; print('PyTorch:', torch.__version__); print('MPS available:', torch.backends.mps.is_available())"
+```
+
+The expected MPS result is `True`. The IAM training script automatically selects Apple MPS when it is available.
+
+The IAM archive may extract images directly as `data/iam/a01/a01-000u/a01-000u-00.png` (as in the Zenodo archive), or under `data/iam/lines/a01/a01-000u/`. The script supports both layouts.
+
+### Continue training from a Windows checkpoint on a Mac
+
+Copy the extracted `data/iam/` directory and your saved `iam_crnn_ctc.pth` file from the Windows computer to the same paths in this project on the Mac. Do not put the dataset or checkpoint in Git.
+
+The first checkpoint created by older versions of this script contains model weights only. It can still be resumed, but the optimizer state cannot be restored, so training restarts with a fresh optimizer from the next epoch. New checkpoints also save the optimizer state and epoch number.
+
+Back up the original checkpoint before resuming, then run:
+
+```bash
+cp iam_crnn_ctc.pth iam_crnn_ctc_epoch1_backup.pth
+PYTORCH_ENABLE_MPS_FALLBACK=1 python train_iam.py --resume
+```
+
+The fallback environment variable lets unsupported MPS operations run on CPU where possible. If an operation still fails, share the complete error rather than switching devices blindly. With the legacy epoch-1 checkpoint, training resumes at epoch 2.
 
 ### Train the IAM line model
 

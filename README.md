@@ -71,6 +71,17 @@ At startup, the script prints the selected device. For an available Intel GPU, i
 - `outputs/metrics.json` — test loss and accuracy
 - Accuracy and loss curves, confusion matrix, and prediction gallery in `outputs/`
 
+## Results
+
+The recorded evaluation metrics in `outputs/metrics.json` are:
+
+| Metric | Result |
+|---|---:|
+| Test loss | 0.02213 |
+| Test accuracy | **99.27%** |
+
+These values are taken from the committed `outputs/metrics.json` file. The metrics file does not record which device performed training, so GPU usage should be confirmed separately from the `Training device` line printed by `train.py`.
+
 ## Predict a custom image
 After training:
 

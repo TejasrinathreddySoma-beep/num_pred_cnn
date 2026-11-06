@@ -1,32 +1,32 @@
 # Handwritten Digit Recognition using CNN (MNIST) — PyTorch + Streamlit
 
-A Convolutional Neural Network built with **PyTorch** to recognize handwritten digits (0–9) from the MNIST dataset. This project includes an interactive **Streamlit drawing app**: draw a digit with your mouse or touchscreen and the trained CNN predicts it using the saved model weights.
+A PyTorch CNN that recognizes handwritten digits (0–9) from MNIST. Draw a digit in the Streamlit app and get the model's top 3 predictions with confidence scores.
 
 ## Features
 
-- CNN trained on MNIST using PyTorch
-- Interactive drawing canvas in a Streamlit web app
-- Prediction from the trained `mnist_cnn.pth` weights
-- Predicted digit, confidence score, and probability chart
-- Automatic device selection: Intel XPU, NVIDIA CUDA, then CPU
-- Training metrics and plots saved in `outputs/`
+- MNIST CNN with two convolutional layers
+- Intel XPU support, then NVIDIA CUDA, then CPU fallback
+- Training-time data augmentation (small rotations, shifts, scaling and shear)
+- Drawing canvas with separate **Predict** and **Clear canvas** buttons
+- MNIST-style preprocessing: invert, threshold, crop, preserve aspect ratio, center and convert to 28×28
+- Top 3 predicted digits and confidence percentages
 
 ## CNN architecture
 
 | Layer | Configuration |
 |---|---|
-| Input | 1 × 28 × 28 grayscale image |
+| Input | 1 × 28 × 28 grayscale |
 | Convolution 1 | 32 filters, 3×3, ReLU |
 | Max pooling | 2×2 |
 | Convolution 2 | 64 filters, 3×3, ReLU |
 | Max pooling | 2×2 |
-| Flatten | 64 × 7 × 7 = 3,136 |
+| Flatten | 3,136 features |
 | Dense hidden | 128 neurons, ReLU, Dropout |
-| Output | 10 classes (digits 0–9) |
+| Output | 10 digit classes |
 
-## Setup
+## Windows setup
 
-Create a virtual environment (Windows PowerShell):
+Create and activate a virtual environment:
 
 ```powershell
 py -3.11 -m venv .venv
@@ -34,47 +34,49 @@ py -3.11 -m venv .venv
 python -m pip install --upgrade pip
 ```
 
-### Install PyTorch
-
-For Intel GPU support, install the XPU build first:
+Install PyTorch. For a supported Intel GPU, install the XPU wheels:
 
 ```powershell
 python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/xpu
 ```
 
-For a CPU-only installation instead, use:
+For CPU-only instead, use:
 
 ```powershell
 python -m pip install torch torchvision torchaudio
 ```
 
-Then install the remaining dependencies:
+Install the remaining dependencies:
 
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
-**Intel GPU note:** PyTorch XPU support depends on the exact Intel processor/GPU and driver. Not every Intel integrated GPU is supported. The app and training script fall back to CPU when no supported accelerator is available.
+**Intel GPU note:** PyTorch XPU support depends on the exact processor/GPU and driver. The scripts automatically fall back to CPU if no supported accelerator is detected.
 
-## Train the model
+## Train the improved model
 
-Run this once to train the CNN and create the model weights:
+Run this after pulling the latest code. It downloads MNIST, applies augmentation to training images only, trains the CNN, evaluates on untouched test images, and saves the best validation checkpoint as `mnist_cnn.pth`.
 
 ```powershell
 python train.py
 ```
 
-This downloads MNIST, trains and evaluates the network, saves `mnist_cnn.pth`, and writes metrics and plots to `outputs/`.
+Training can take some time. Wait until it prints the test accuracy and confirms the model weights have been saved. It also writes metrics and plots into `outputs/`.
+
+**Important:** The retrained `mnist_cnn.pth` file is created on your computer and is ignored by Git. You must run `python train.py` locally before starting the app; the previous weights should not be treated as the augmented model.
 
 ## Launch the drawing app
 
-After training has created `mnist_cnn.pth`, run:
+After training completes:
 
 ```powershell
 streamlit run streamlit_app.py
 ```
 
-Streamlit opens the app in your browser. Draw one digit (0–9) in the white canvas. The app preprocesses the drawing into a centered 28×28 MNIST-style image and passes it to the same CNN architecture loaded from `mnist_cnn.pth`. It displays the predicted digit, confidence, and class probabilities. Use the canvas toolbar to erase or clear and draw another digit.
+Draw one complete digit in the canvas, then click **Predict digit**. The app displays the top prediction, its confidence, and the top 3 alternatives. Click **Clear canvas** to start again.
+
+For best results, draw a single centered digit, with a little space around it. Avoid touching the canvas edges.
 
 ## Predict from an image file (optional)
 
@@ -82,25 +84,18 @@ Streamlit opens the app in your browser. Draw one digit (0–9) in the white can
 python predict.py path\to\digit.png
 ```
 
-## Recorded evaluation results
-
-The committed `outputs/metrics.json` currently records:
-
-| Metric | Result |
-|---|---:|
-| Test loss | 0.02213 |
-| Test accuracy | **99.27%** |
-
-These are the saved test metrics; results from new training runs may differ.
-
 ## Project files
 
-- `train.py` — model definition, training, evaluation, and output plots
-- `predict.py` — command-line prediction for an image file
-- `streamlit_app.py` — interactive drawing canvas and live digit prediction
-- `requirements.txt` — Python dependencies (install PyTorch separately as shown above)
-- `outputs/` — saved metrics and evaluation plots after training
-- `mnist_cnn.pth` — trained model weights generated by training
+- `train.py` — CNN architecture, augmented training, evaluation and plots
+- `predict.py` — command-line prediction from an image file
+- `streamlit_app.py` — drawing UI, preprocessing, Predict/Clear buttons and top-3 predictions
+- `requirements.txt` — dependencies (PyTorch installed separately as above)
+- `outputs/` — metrics and evaluation plots generated during training
+- `mnist_cnn.pth` — trained model weights generated locally
+
+## Recorded previous baseline
+
+The earlier committed `outputs/metrics.json` reported 99.27% test accuracy before the new augmentation changes. The augmented model will produce new metrics when you run `train.py`; do not assume the old score applies to the new weights.
 
 ## References
 

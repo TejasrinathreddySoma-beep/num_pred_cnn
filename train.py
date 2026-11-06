@@ -1,4 +1,4 @@
-"""Train and evaluate a PyTorch CNN on the MNIST handwritten digit dataset."""
+"""Train and evaluate the MNIST CNN with handwriting-friendly augmentation."""
 from pathlib import Path
 import json
 import random
@@ -7,13 +7,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch import nn
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
 from sklearn.metrics import ConfusionMatrixDisplay, classification_report
 
 SEED = 42
 BATCH_SIZE = 128
-EPOCHS = 15
+EPOCHS = 20
 MODEL_PATH = Path("mnist_cnn.pth")
 OUTPUT_DIR = Path("outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -42,10 +42,10 @@ class MNISTCNN(nn.Module):
         self.features = nn.Sequential(
             nn.Conv2d(1, 32, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(2),  # 28x28 -> 14x14
+            nn.MaxPool2d(2),
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(2),  # 14x14 -> 7x7
+            nn.MaxPool2d(2),
         )
         self.classifier = nn.Sequential(
             nn.Flatten(),
@@ -89,14 +89,37 @@ def main():
         torch.xpu.manual_seed_all(SEED)
 
     device = get_device()
-    transform = transforms.ToTensor()
 
-    full_train = datasets.MNIST("data", train=True, download=True, transform=transform)
-    test_dataset = datasets.MNIST("data", train=False, download=True, transform=transform)
-    train_dataset, val_dataset = random_split(
-        full_train, [54_000, 6_000],
-        generator=torch.Generator().manual_seed(SEED)
+    # Augment training images only. Validation and test images stay untouched
+    # so their metrics remain comparable to the standard MNIST benchmark.
+    train_transform = transforms.Compose([
+        transforms.RandomAffine(
+            degrees=12,
+            translate=(0.08, 0.08),
+            scale=(0.90, 1.10),
+            shear=5,
+            fill=0,
+        ),
+        transforms.ToTensor(),
+    ])
+    evaluation_transform = transforms.ToTensor()
+
+    train_source = datasets.MNIST(
+        "data", train=True, download=True, transform=train_transform
     )
+    evaluation_source = datasets.MNIST(
+        "data", train=True, download=True, transform=evaluation_transform
+    )
+    test_dataset = datasets.MNIST(
+        "data", train=False, download=True, transform=evaluation_transform
+    )
+
+    generator = torch.Generator().manual_seed(SEED)
+    permutation = torch.randperm(len(train_source), generator=generator).tolist()
+    train_indices, val_indices = permutation[:54_000], permutation[54_000:]
+    train_dataset = Subset(train_source, train_indices)
+    val_dataset = Subset(evaluation_source, val_indices)
+
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
@@ -107,7 +130,7 @@ def main():
 
     history = {"train_loss": [], "val_loss": [], "train_accuracy": [], "val_accuracy": []}
     best_val_accuracy = 0.0
-    patience, epochs_without_improvement = 3, 0
+    patience, epochs_without_improvement = 4, 0
 
     for epoch in range(EPOCHS):
         train_loss, train_acc = run_epoch(model, train_loader, criterion, device, optimizer)
@@ -132,6 +155,7 @@ def main():
                 print("Early stopping.")
                 break
 
+    # Reload the best validation checkpoint before final test evaluation.
     model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
     test_loss, test_accuracy = run_epoch(model, test_loader, criterion, device)
     print(f"\nTest loss: {test_loss:.4f}")
@@ -150,7 +174,12 @@ def main():
     print("\nClassification report:")
     print(classification_report(all_labels, all_predictions, digits=4))
     with (OUTPUT_DIR / "metrics.json").open("w") as f:
-        json.dump({"test_loss": test_loss, "test_accuracy": test_accuracy}, f, indent=2)
+        json.dump({
+            "test_loss": test_loss,
+            "test_accuracy": test_accuracy,
+            "best_validation_accuracy": best_val_accuracy,
+            "augmentation": "RandomAffine: rotation 12 degrees, translation 8%, scale 0.90-1.10, shear 5 degrees",
+        }, f, indent=2)
 
     for metric, title, filename in [
         ("accuracy", "CNN Accuracy", "accuracy_curve.png"),
@@ -181,7 +210,7 @@ def main():
     fig.tight_layout()
     fig.savefig(OUTPUT_DIR / "prediction_gallery.png", dpi=150)
     plt.close(fig)
-    print(f"\nSaved model weights to {MODEL_PATH}")
+    print(f"\nSaved improved model weights to {MODEL_PATH}")
     print(f"Saved plots and metrics in {OUTPUT_DIR}/")
 
 

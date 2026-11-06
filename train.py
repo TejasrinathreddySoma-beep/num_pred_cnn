@@ -19,6 +19,21 @@ OUTPUT_DIR = Path("outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 
+def get_device():
+    """Prefer Intel XPU, then NVIDIA CUDA, otherwise CPU."""
+    if hasattr(torch, "xpu") and torch.xpu.is_available():
+        device = torch.device("xpu")
+        print(f"Intel GPU detected: {torch.xpu.get_device_name(0)}")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+        print(f"NVIDIA GPU detected: {torch.cuda.get_device_name(0)}")
+    else:
+        device = torch.device("cpu")
+        print("No supported GPU detected; using CPU.")
+    print(f"Training device: {device}")
+    return device
+
+
 class MNISTCNN(nn.Module):
     """CNN with two convolutional layers and one dense hidden layer."""
 
@@ -70,9 +85,10 @@ def main():
     torch.manual_seed(SEED)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(SEED)
+    if hasattr(torch, "xpu") and torch.xpu.is_available():
+        torch.xpu.manual_seed_all(SEED)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
+    device = get_device()
     transform = transforms.ToTensor()
 
     full_train = datasets.MNIST("data", train=True, download=True, transform=transform)

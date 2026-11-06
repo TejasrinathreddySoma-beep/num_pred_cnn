@@ -1,7 +1,14 @@
+
+# Python
 __pycache__/
+*.py[cod]
 .venv/
-*.pyc
+
+# IDE
 .idea/
+
+# Dataset
+data/
+
+# Generated model weights
 mnist_cnn.pth
-outputs/
-output/

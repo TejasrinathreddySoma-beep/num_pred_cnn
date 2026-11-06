@@ -1,31 +1,28 @@
-# Handwritten Digit Recognition using CNN (MNIST)
+# Handwritten Digit Recognition using CNN (MNIST) — PyTorch
 
-## Overview
-A Convolutional Neural Network (CNN) that classifies handwritten digit images (0–9) using the MNIST dataset.
+A Convolutional Neural Network built with **PyTorch** to classify handwritten digits (0–9) from the MNIST dataset.
 
 ## Dataset
-MNIST contains 70,000 grayscale 28×28 images: 60,000 training images and 10,000 test images. TensorFlow downloads the dataset automatically the first time the training script runs.
+MNIST contains 70,000 grayscale images of size 28×28: 60,000 training images and 10,000 test images. The torchvision dataset loader downloads the data automatically.
 
-## Model architecture
-- Input: 28×28×1
-- Conv2D (32 filters, ReLU) + Batch Normalization + Max Pooling
-- Conv2D (64 filters, ReLU) + Batch Normalization + Max Pooling
-- Dropout, Flatten
-- Dense (128, ReLU) + Dropout
-- Dense (10, Softmax)
+## CNN architecture
+- Input: 1 × 28 × 28
+- Conv2D: 32 filters, 3×3 + ReLU
+- MaxPool2D: 2×2
+- Conv2D: 64 filters, 3×3 + ReLU
+- MaxPool2D: 2×2
+- Flatten: 64 × 7 × 7 = 3,136 features
+- Fully connected hidden layer: 128 neurons + ReLU + Dropout
+- Output layer: 10 neurons (digits 0–9)
 
-Optimizer: Adam. Loss: sparse categorical cross-entropy.
+There are **3 learnable hidden layers** (two convolutional layers and one fully connected layer), excluding pooling, dropout, and flatten operations.
 
 ## Setup
 Python 3.10 or 3.11 recommended.
 
 ```bash
 python -m venv .venv
-```
-
-Activate the environment, then install dependencies:
-
-```bash
+# Activate the environment, then:
 pip install -r requirements.txt
 ```
 
@@ -34,7 +31,12 @@ pip install -r requirements.txt
 python train.py
 ```
 
-This trains the CNN, evaluates it on the held-out test set, and saves the model as `mnist_cnn.keras`. Plots and metrics are saved in `outputs/`. Use the measured test accuracy printed by the script in your report; do not assume a fixed score.
+The script downloads MNIST, trains the CNN, evaluates it on the test set, and saves:
+- `mnist_cnn.pth` — model weights
+- `outputs/metrics.json` — test loss and accuracy
+- Accuracy and loss curves, confusion matrix, and prediction gallery in `outputs/`
+
+The actual test accuracy is printed after training; it can vary slightly by environment and random seed.
 
 ## Predict a custom image
 After training:
@@ -43,20 +45,18 @@ After training:
 python predict.py path/to/digit.png
 ```
 
-Use a centered, high-contrast image containing one digit on a plain background.
+Provide a single digit on a plain background. The prediction script converts it to grayscale, inverts it to match MNIST's white-digit-on-black-background convention, and resizes it to 28×28.
 
 ## Project report sections
 1. Abstract and introduction
 2. Problem statement and objectives
 3. Dataset description
-4. Preprocessing
+4. Image preprocessing
 5. CNN architecture and methodology
 6. Training configuration
 7. Results and evaluation
 8. Conclusion and future work
 
 ## References
-- https://www.tensorflow.org/tutorials/quickstart/beginner
-- https://keras.io/examples/vision/
-
-Note: Real-world handwriting may differ from MNIST. Custom images may require careful cropping, centering, and preprocessing.
+- https://pytorch.org/tutorials/beginner/basics/quickstart_tutorial.html
+- https://pytorch.org/vision/stable/datasets.html#mnist

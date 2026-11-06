@@ -12,7 +12,8 @@ from torchvision import transforms
 from train import MNISTCNN, get_device
 
 MODEL_PATH = Path("mnist_cnn.pth")
-CANVAS_SIZE = 320
+CANVAS_WIDTH = 700
+CANVAS_HEIGHT = 300
 
 
 @st.cache_resource
@@ -116,7 +117,9 @@ def predict_digits(model, device, source):
     if not boxes:
         return [], pil_image
 
-    tensors = torch.stack([normalize_digit(foreground, box).squeeze(0) for box in boxes])
+    # Each normalized digit is [1, 28, 28]; preserve the channel dimension.
+    # Stacking must produce [batch, 1, 28, 28] for Conv2d.
+    tensors = torch.stack([normalize_digit(foreground, box) for box in boxes])
     with torch.no_grad():
         logits = model(tensors.to(device))
         probabilities = torch.softmax(logits, dim=1).cpu()
@@ -164,11 +167,11 @@ if input_mode == "Draw digits":
     st.caption("Write two or more digits with space between them.")
     canvas_result = st_canvas(
         fill_color="rgba(255, 255, 255, 1)",
-        stroke_width=16,
+        stroke_width=20,
         stroke_color="#000000",
         background_color="#FFFFFF",
-        width=CANVAS_SIZE,
-        height=180,
+        width=CANVAS_WIDTH,
+        height=CANVAS_HEIGHT,
         drawing_mode="freedraw",
         key=f"multi_digit_canvas_{st.session_state.canvas_version}",
         return_image_data=True,

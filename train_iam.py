@@ -9,6 +9,7 @@ data/iam/
 Download IAM Lines and its ASCII annotation/split files from the official IAM site.
 """
 from pathlib import Path
+import argparse
 import random
 
 import torch
@@ -75,7 +76,18 @@ def line_image_path(root, line_id):
     parts = line_id.split("-")
     if len(parts) < 3:
         raise ValueError(f"Unexpected IAM line ID: {line_id}")
-    return root / "lines" / parts[0] / "-".join(parts[:2]) / f"{line_id}.png"
+
+    # Support both direct writer folders and a nested lines/ folder.
+    filename = f"{line_id}.png"
+    form_folder = "-".join(parts[:2])
+    candidates = [
+        root / parts[0] / form_folder / filename,
+        root / "lines" / parts[0] / form_folder / filename,
+    ]
+    for path in candidates:
+        if path.is_file():
+            return path
+    return candidates[0]
 
 
 class IAMLineDataset(Dataset):
@@ -189,6 +201,9 @@ def run_epoch(model, loader, criterion, device, optimizer=None):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Train the IAM handwriting line recognizer.")
+    parser.add_argument("--resume", action="store_true", help="Resume from iam_crnn_ctc.pth.")
+    args = parser.parse_args()
     random.seed(42)
     torch.manual_seed(42)
     if hasattr(torch, "xpu") and torch.xpu.is_available():
@@ -197,6 +212,9 @@ def main():
     elif torch.cuda.is_available():
         device = torch.device("cuda")
         print(f"Using CUDA: {torch.cuda.get_device_name(0)}")
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        device = torch.device("mps")
+        print("Using Apple MPS GPU")
     else:
         device = torch.device("cpu")
         print("Using CPU")
@@ -230,9 +248,21 @@ def main():
         optimizer, mode="min", factor=0.5, patience=2,
     )
     best_cer = float("inf")
+    start_epoch = 1
+    if args.resume:
+        if not MODEL_PATH.is_file():
+            raise FileNotFoundError(f"Cannot resume: {MODEL_PATH} does not exist. Copy your saved checkpoint here.")
+        checkpoint = torch.load(MODEL_PATH, map_location=device)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        if "optimizer_state_dict" in checkpoint:
+            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        start_epoch = int(checkpoint.get("epoch", 1)) + 1
+        best_cer = float(checkpoint.get("best_cer", float("inf")))
+        print(f"Resuming from {MODEL_PATH}; starting at epoch {start_epoch}.")
+
     patience, no_improvement = 6, 0
 
-    for epoch in range(1, EPOCHS + 1):
+    for epoch in range(start_epoch, EPOCHS + 1):
         train_loss, train_cer = run_epoch(model, train_loader, criterion, device, optimizer)
         valid_loss, valid_cer = run_epoch(model, valid_loader, criterion, device)
         scheduler.step(valid_cer)
@@ -246,6 +276,9 @@ def main():
             no_improvement = 0
             torch.save({
                 "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "epoch": epoch,
+                "best_cer": best_cer,
                 "characters": CHAR_TO_ID,
                 "image_height": IMAGE_HEIGHT,
             }, MODEL_PATH)

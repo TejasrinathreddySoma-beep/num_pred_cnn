@@ -64,7 +64,6 @@ canvas_result = st_canvas(
     height=280,
     drawing_mode="freedraw",
     key="digit_canvas",
-    display_toolbar=True,
 )
 
 if canvas_result.image_data is not None and np.any(canvas_result.image_data[:, :, :3] < 250):

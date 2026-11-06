@@ -1,4 +1,4 @@
-"""Train and evaluate the MNIST CNN with handwriting-friendly augmentation."""
+"""Train an EMNIST ByClass CNN for digits, uppercase and lowercase letters."""
 from pathlib import Path
 import json
 import random
@@ -6,17 +6,20 @@ import random
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from PIL import Image
 from torch import nn
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
 from sklearn.metrics import ConfusionMatrixDisplay, classification_report
 
 SEED = 42
-BATCH_SIZE = 128
-EPOCHS = 20
-MODEL_PATH = Path("mnist_cnn.pth")
+BATCH_SIZE = 256
+EPOCHS = 15
+MODEL_PATH = Path("emnist_byclass_cnn.pth")
 OUTPUT_DIR = Path("outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
+CLASS_NAMES = list("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+NUM_CLASSES = len(CLASS_NAMES)
 
 
 def get_device():
@@ -34,9 +37,8 @@ def get_device():
     return device
 
 
-class MNISTCNN(nn.Module):
-    """CNN with two convolutional layers and one dense hidden layer."""
-
+class EMNISTCNN(nn.Module):
+    """CNN classifier with 62 EMNIST ByClass output classes."""
     def __init__(self):
         super().__init__()
         self.features = nn.Sequential(
@@ -52,7 +54,7 @@ class MNISTCNN(nn.Module):
             nn.Linear(64 * 7 * 7, 128),
             nn.ReLU(),
             nn.Dropout(0.4),
-            nn.Linear(128, 10),
+            nn.Linear(128, NUM_CLASSES),
         )
 
     def forward(self, x):
@@ -66,7 +68,7 @@ def run_epoch(model, loader, criterion, device, optimizer=None):
     for images, labels in loader:
         images, labels = images.to(device), labels.to(device)
         if training:
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
         with torch.set_grad_enabled(training):
             logits = model(images)
             loss = criterion(logits, labels)
@@ -90,33 +92,41 @@ def main():
 
     device = get_device()
 
-    # Augment training images only. Validation and test images stay untouched
-    # so their metrics remain comparable to the standard MNIST benchmark.
+    # EMNIST source images need a transpose to display in normal upright
+    # orientation. Apply the same correction to train, validation and test.
+    orientation_fix = transforms.Lambda(
+        lambda image: image.transpose(Image.Transpose.TRANSPOSE)
+    )
     train_transform = transforms.Compose([
+        orientation_fix,
         transforms.RandomAffine(
-            degrees=12,
-            translate=(0.08, 0.08),
-            scale=(0.90, 1.10),
-            shear=5,
-            fill=0,
+            degrees=10, translate=(0.08, 0.08),
+            scale=(0.90, 1.10), shear=5, fill=0,
         ),
         transforms.ToTensor(),
     ])
-    evaluation_transform = transforms.ToTensor()
+    evaluation_transform = transforms.Compose([
+        orientation_fix,
+        transforms.ToTensor(),
+    ])
 
-    train_source = datasets.MNIST(
-        "data", train=True, download=True, transform=train_transform
+    train_source = datasets.EMNIST(
+        "data", split="byclass", train=True, download=True,
+        transform=train_transform,
     )
-    evaluation_source = datasets.MNIST(
-        "data", train=True, download=True, transform=evaluation_transform
+    evaluation_source = datasets.EMNIST(
+        "data", split="byclass", train=True, download=True,
+        transform=evaluation_transform,
     )
-    test_dataset = datasets.MNIST(
-        "data", train=False, download=True, transform=evaluation_transform
+    test_dataset = datasets.EMNIST(
+        "data", split="byclass", train=False, download=True,
+        transform=evaluation_transform,
     )
 
     generator = torch.Generator().manual_seed(SEED)
     permutation = torch.randperm(len(train_source), generator=generator).tolist()
-    train_indices, val_indices = permutation[:54_000], permutation[54_000:]
+    split_at = int(len(permutation) * 0.9)
+    train_indices, val_indices = permutation[:split_at], permutation[split_at:]
     train_dataset = Subset(train_source, train_indices)
     val_dataset = Subset(evaluation_source, val_indices)
 
@@ -124,7 +134,7 @@ def main():
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
-    model = MNISTCNN().to(device)
+    model = EMNISTCNN().to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
@@ -141,10 +151,9 @@ def main():
         history["val_accuracy"].append(val_acc)
         print(
             f"Epoch {epoch + 1:02d}/{EPOCHS} | "
-            f"train loss {train_loss:.4f}, acc {train_acc:.4%} | "
-            f"val loss {val_loss:.4f}, acc {val_acc:.4%}"
+            f"train loss {train_loss:.4f}, acc {train_acc:.2%} | "
+            f"val loss {val_loss:.4f}, acc {val_acc:.2%}"
         )
-
         if val_acc > best_val_accuracy:
             best_val_accuracy = val_acc
             epochs_without_improvement = 0
@@ -155,35 +164,38 @@ def main():
                 print("Early stopping.")
                 break
 
-    # Reload the best validation checkpoint before final test evaluation.
     model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
     test_loss, test_accuracy = run_epoch(model, test_loader, criterion, device)
-    print(f"\nTest loss: {test_loss:.4f}")
-    print(f"Test accuracy: {test_accuracy:.4%}")
+    print(f"\nEMNIST ByClass test loss: {test_loss:.4f}")
+    print(f"EMNIST ByClass test accuracy: {test_accuracy:.2%}")
 
     model.eval()
-    all_predictions, all_labels, sample_images = [], [], []
+    all_predictions, all_labels = [], []
     with torch.no_grad():
         for images, labels in test_loader:
             logits = model(images.to(device))
             all_predictions.extend(logits.argmax(1).cpu().numpy())
             all_labels.extend(labels.numpy())
-            if len(sample_images) < 12:
-                sample_images.extend(images[:12 - len(sample_images)])
 
     print("\nClassification report:")
-    print(classification_report(all_labels, all_predictions, digits=4))
-    with (OUTPUT_DIR / "metrics.json").open("w") as f:
+    print(classification_report(
+        all_labels, all_predictions, labels=list(range(NUM_CLASSES)),
+        target_names=CLASS_NAMES, zero_division=0, digits=4,
+    ))
+    with (OUTPUT_DIR / "emnist_metrics.json").open("w") as file:
         json.dump({
+            "dataset": "EMNIST ByClass",
+            "classes": CLASS_NAMES,
+            "num_classes": NUM_CLASSES,
             "test_loss": test_loss,
             "test_accuracy": test_accuracy,
             "best_validation_accuracy": best_val_accuracy,
-            "augmentation": "RandomAffine: rotation 12 degrees, translation 8%, scale 0.90-1.10, shear 5 degrees",
-        }, f, indent=2)
+            "augmentation": "RandomAffine: rotation 10 degrees, translation 8%, scale 0.90-1.10, shear 5 degrees",
+        }, file, indent=2)
 
     for metric, title, filename in [
-        ("accuracy", "CNN Accuracy", "accuracy_curve.png"),
-        ("loss", "CNN Loss", "loss_curve.png"),
+        ("accuracy", "EMNIST ByClass Accuracy", "emnist_accuracy_curve.png"),
+        ("loss", "EMNIST ByClass Loss", "emnist_loss_curve.png"),
     ]:
         plt.figure()
         plt.plot(history[f"train_{metric}"], label="Training")
@@ -196,22 +208,8 @@ def main():
         plt.savefig(OUTPUT_DIR / filename, dpi=150)
         plt.close()
 
-    ConfusionMatrixDisplay.from_predictions(all_labels, all_predictions, cmap="Blues")
-    plt.title("MNIST Test Confusion Matrix")
-    plt.tight_layout()
-    plt.savefig(OUTPUT_DIR / "confusion_matrix.png", dpi=150)
-    plt.close()
-
-    fig, axes = plt.subplots(3, 4, figsize=(8, 6))
-    for index, ax in enumerate(axes.flat):
-        ax.imshow(sample_images[index].squeeze().numpy(), cmap="gray")
-        ax.set_title(f"True: {all_labels[index]} | Pred: {all_predictions[index]}")
-        ax.axis("off")
-    fig.tight_layout()
-    fig.savefig(OUTPUT_DIR / "prediction_gallery.png", dpi=150)
-    plt.close(fig)
-    print(f"\nSaved improved model weights to {MODEL_PATH}")
-    print(f"Saved plots and metrics in {OUTPUT_DIR}/")
+    print(f"\nSaved 62-class model weights to {MODEL_PATH}")
+    print(f"Saved EMNIST metrics and curves in {OUTPUT_DIR}/")
 
 
 if __name__ == "__main__":

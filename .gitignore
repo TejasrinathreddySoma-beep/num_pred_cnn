@@ -12,3 +12,4 @@ data/
 
 # Generated model weights
 mnist_cnn.pth
+

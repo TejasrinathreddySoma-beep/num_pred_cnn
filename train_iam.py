@@ -28,14 +28,29 @@ WORKERS = 0  # Safe default for Windows; increase only if memory permits.
 MODEL_PATH = Path("iam_crnn_ctc.pth")
 
 
+
 def locate_file(root, candidates):
+    from pathlib import Path
+
+    root = Path(root)
+
+    # First check the expected locations
     for candidate in candidates:
         path = root / candidate
         if path.is_file():
             return path
+
+    # If not found, search inside all subfolders
+    for candidate in candidates:
+        filename = Path(candidate).name
+
+        matches = list(root.rglob(filename))
+
+        if matches:
+            return matches[0]
+
     raise FileNotFoundError(
-        f"Could not find any of {candidates} under {root}. "
-        "Check the IAM dataset folder structure."
+        f"Could not find any of {candidates} under {root}"
     )
 
 
@@ -75,7 +90,8 @@ def line_image_path(root, line_id):
     parts = line_id.split("-")
     if len(parts) < 3:
         raise ValueError(f"Unexpected IAM line ID: {line_id}")
-    return root / "lines" / parts[0] / "-".join(parts[:2]) / f"{line_id}.png"
+
+    return root / parts[0] / "-".join(parts[:2]) / f"{line_id}.png"
 
 
 class IAMLineDataset(Dataset):

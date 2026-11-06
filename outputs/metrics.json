@@ -1,4 +1,6 @@
 {
-  "test_loss": 0.022130023077584337,
-  "test_accuracy": 0.9927
+  "test_loss": 0.02012099735615775,
+  "test_accuracy": 0.9927,
+  "best_validation_accuracy": 0.992,
+  "augmentation": "RandomAffine: rotation 12 degrees, translation 8%, scale 0.90-1.10, shear 5 degrees"
 }

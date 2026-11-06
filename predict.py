@@ -7,7 +7,7 @@ from PIL import Image, ImageOps
 import torch
 from torchvision import transforms
 
-from train import MNISTCNN
+from train import MNISTCNN, get_device
 
 
 def main():
@@ -16,7 +16,7 @@ def main():
     parser.add_argument("--model", default="mnist_cnn.pth", help="Model weights path")
     args = parser.parse_args()
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = get_device()
     model_path = Path(args.model)
     if not model_path.exists():
         raise FileNotFoundError(

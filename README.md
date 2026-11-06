@@ -7,7 +7,10 @@ A PyTorch CNN that recognizes handwritten digits (0–9) from MNIST. Draw a digi
 - MNIST CNN with two convolutional layers
 - Intel XPU support, then NVIDIA CUDA, then CPU fallback
 - Training-time data augmentation (small rotations, shifts, scaling and shear)
-- Drawing canvas with separate **Predict** and **Clear canvas** buttons
+- Drawing canvas or image upload for multiple handwritten digits
+- Connected-component segmentation that splits separated digits and processes them left-to-right
+- Per-digit top 3 predictions with confidence percentages
+- Separate **Predict all digits** and **Clear / reset** buttons
 - MNIST-style preprocessing: invert, threshold, crop, preserve aspect ratio, center and convert to 28×28
 - Top 3 predicted digits and confidence percentages
 
@@ -74,9 +77,9 @@ After training completes:
 streamlit run streamlit_app.py
 ```
 
-Draw one complete digit in the canvas, then click **Predict digit**. The app displays the top prediction, its confidence, and the top 3 alternatives. Click **Clear canvas** to start again.
+Choose **Draw digits** or **Upload image**. Enter an image with two or more separated, non-touching digits, then click **Predict all digits**. The app uses connected-component segmentation to find each digit, sorts them from left to right, normalizes each crop to 28×28, and predicts each one independently. It displays the recognized sequence and top 3 alternatives for every digit. Click **Clear / reset** to start again.
 
-For best results, draw a single centered digit, with a little space around it. Avoid touching the canvas edges.
+For best results, use dark digits on a light background, keep visible gaps between digits, and avoid touching or overlapping strokes. Connected-component segmentation cannot reliably split digits that touch, and a disconnected stroke within one digit may be treated as a separate component.
 
 ## Predict from an image file (optional)
 

@@ -3,7 +3,7 @@ import torch
 from torch import nn
 
 # CTC blank is index 0. Remaining indices map to these characters.
-CHARACTERS = " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!\\"#&'()*+,-./:;?@[]_"
+CHARACTERS = " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#&'()*+,-./:;?@[]_" + chr(34)
 BLANK_ID = 0
 CHAR_TO_ID = {character: index + 1 for index, character in enumerate(CHARACTERS)}
 ID_TO_CHAR = {index + 1: character for index, character in enumerate(CHARACTERS)}

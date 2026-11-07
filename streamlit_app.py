@@ -127,7 +127,7 @@ if recognition_mode == "IAM handwritten text line":
     device = get_inference_device()
 
     @st.cache_resource
-    def cached_iam_model(checkpoint_path, device_name):
+    def cached_iam_model(checkpoint_path, checkpoint_mtime, device_name):
         return load_iam_model(checkpoint_path, torch.device(device_name))
 
     if not iam_checkpoint.is_file():
@@ -135,7 +135,7 @@ if recognition_mode == "IAM handwritten text line":
         st.code("iam_crnn_ctc.pth", language="text")
         st.stop()
 
-    model = cached_iam_model(str(iam_checkpoint), str(device))
+    model = cached_iam_model(str(iam_checkpoint.resolve()), iam_checkpoint.stat().st_mtime, str(device))
     st.caption(f"Loaded weights: iam_crnn_ctc.pth · Device: {device}")
     st.info("For best results use a straight, clear scan. Whole-page mode attempts to split separated handwriting lines automatically.")
     input_kind = st.radio("Input type", ["Whole page (auto-split lines)", "Single text line"], horizontal=True)

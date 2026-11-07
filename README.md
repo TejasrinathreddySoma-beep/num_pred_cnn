@@ -1,4 +1,4 @@
-# Handwritten Digit & Alphabet Recognition (EMNIST ByClass)
+ # Handwritten Digit & Alphabet Recognition (EMNIST ByClass)
 
 A PyTorch CNN and Streamlit application for recognizing handwritten digits and English letters. The model is trained on **EMNIST ByClass**, which has 62 classes: digits 0–9, uppercase A–Z, and lowercase a–z. The app supports drawing or uploading a sequence of separated characters and predicts each character from left to right.
 

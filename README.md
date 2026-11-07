@@ -296,6 +296,9 @@ The script uses grayscale conversion and contrast normalization, trains a CNN-Bi
 
 ## Trained IAM model results
 
+Detailed checked results: [`reports/iam_training/report.md`](reports/iam_training/report.md) and [`metrics.json`](reports/iam_training/metrics.json).
+
+
 A completed 30-epoch IAM line-recognition run was supplied and checked against this branch's model architecture. The checkpoint uses the same character mapping and image height as `iam_model.py`.
 
 | Result | Value |

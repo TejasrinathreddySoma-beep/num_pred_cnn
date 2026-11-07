@@ -187,15 +187,112 @@ PYTORCH_ENABLE_MPS_FALLBACK=1 python train_iam.py --resume
 
 The fallback environment variable lets unsupported MPS operations run on CPU where possible. If an operation still fails, share the complete error rather than switching devices blindly. With the legacy epoch-1 checkpoint, training resumes at epoch 2.
 
-### Train the IAM line model
+### Train the IAM line model with an NVIDIA RTX GPU (Windows)
+
+Use this section on the Windows/Linux computer that has the NVIDIA RTX card. The MacBook Air M4 cannot run CUDA.
+
+1. Install or update the NVIDIA driver from [NVIDIA Driver Downloads](https://www.nvidia.com/Download/index.aspx).
+2. Open PowerShell in the project folder. Check that Windows sees the GPU:
 
 ```powershell
-python train_iam.py
+nvidia-smi
 ```
 
-The script uses grayscale conversion and contrast normalization, trains a CNN-BiLSTM with CTC loss, selects the best checkpoint using validation character error rate (CER), and evaluates the held-out test split. It saves `iam_crnn_ctc.pth`. This is a separate model from `emnist_byclass_cnn.pth`.
+If this command is not found or does not list your RTX card, fix the NVIDIA driver installation before continuing.
 
-**Hardware note:** Start with the default small batch size. Sequence models use more memory than the old character classifier. Intel XPU operator support can vary by PyTorch version; if an operation is unsupported on XPU, run this experimental training script on CPU or use a compatible PyTorch XPU build.
+3. Use 64-bit Python 3.11 or 3.12 and create a clean environment:
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+```
+
+If PowerShell blocks environment activation, run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` once in that terminal, then activate again.
+
+4. Install the CUDA-enabled PyTorch build. The current PyTorch installation selector is the source of truth for the best wheel for your driver and platform: [PyTorch Get Started](https://pytorch.org/get-started/locally/). Select **Windows / Pip / Python / CUDA** and run the exact command shown. Do not install the Intel XPU build on the RTX machine.
+
+For a current CUDA 13.0 wheel, the command is:
+
+```powershell
+python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu130
+```
+
+If the selector recommends another CUDA wheel for your driver, use its command instead.
+
+5. Install the project's other dependencies:
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+6. Verify that PyTorch can use CUDA and identify your RTX card:
+
+```powershell
+python -c "import torch; print('PyTorch:', torch.__version__); print('Built with CUDA:', torch.version.cuda); print('CUDA available:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'NOT DETECTED')"
+```
+
+Do not start training unless `CUDA available: True` and your NVIDIA RTX model is printed.
+
+### Download and arrange the IAM data
+
+Download the IAM line images and the matching ASCII annotation/split files from the IAM source or the approved [Zenodo record](https://zenodo.org/records/19003721). Extract the files into:
+
+```text
+data/iam/
+  a01/a01-000u/a01-000u-00.png
+  lines.txt
+  trainset.txt
+  validationset1.txt
+  testset.txt
+```
+
+The loader also accepts images under `data/iam/lines/` and annotation/split files under the documented `ascii/` folders. Keep the dataset out of Git; the IAM data is large and has its own access terms.
+
+### Start CUDA training
+
+From the project folder with the virtual environment activated:
+
+```powershell
+python train_iam.py --device cuda
+```
+
+The script automatically prefers CUDA when using `--device auto`, but `--device cuda` is recommended here because it stops with an error rather than silently using the CPU if CUDA is unavailable.
+
+Useful options:
+
+```powershell
+# Lower memory use if you get a CUDA out-of-memory error
+python train_iam.py --device cuda --batch-size 2
+
+# Resume from the best saved checkpoint
+python train_iam.py --device cuda --resume
+
+# Choose a smaller number of epochs for a test run
+python train_iam.py --device cuda --epochs 2
+```
+
+The default batch size is 4, epochs are 30, and Windows data-loader workers default to 0 for stability. If CUDA runs out of memory, stop the run and retry with batch size 2 (or 1). The best validation-CER checkpoint is saved as `iam_crnn_ctc.pth` in the project root. The script evaluates the test split after training.
+
+### Resume training
+
+The checkpoint file is local and is not committed to Git. Keep a backup before replacing or resuming it. Resume with:
+
+```powershell
+python train_iam.py --device cuda --resume
+```
+
+### Run the Streamlit app
+
+The existing `streamlit_app.py` is the EMNIST character/sequence demo. It is not yet a full-page IAM handwriting reader. The IAM model currently trains and evaluates handwritten **line images**; page segmentation and a Streamlit page-recognition interface are separate future work.
+
+To launch the existing EMNIST app:
+
+```powershell
+streamlit run streamlit_app.py
+```
+
+The script uses grayscale conversion and contrast normalization, trains a CNN-BiLSTM with CTC loss, selects the best checkpoint using validation character error rate (CER), and evaluates the held-out test split. It saves `iam_crnn_ctc.pth`, separate from `emnist_byclass_cnn.pth`.
 
 ### New files
 

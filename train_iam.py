@@ -172,9 +172,9 @@ def run_epoch(model, loader, criterion, device, optimizer=None):
     total_chars = 0
     total_errors = 0
     for images, targets, target_lengths, widths, texts in loader:
-        images = images.to(device)
-        targets = targets.to(device)
-        target_lengths = target_lengths.to(device)
+        images = images.to(device, non_blocking=(device.type == "cuda"))
+        targets = targets.to(device, non_blocking=(device.type == "cuda"))
+        target_lengths = target_lengths.to(device, non_blocking=(device.type == "cuda"))
         input_lengths = IAMCRNN.output_lengths(widths).to(device)
         if torch.any(input_lengths < target_lengths):
             raise RuntimeError("A line is too wide/long for CTC after resizing. Lower IMAGE_HEIGHT or increase MAX_WIDTH.")
@@ -203,21 +203,49 @@ def run_epoch(model, loader, criterion, device, optimizer=None):
 def main():
     parser = argparse.ArgumentParser(description="Train the IAM handwriting line recognizer.")
     parser.add_argument("--resume", action="store_true", help="Resume from iam_crnn_ctc.pth.")
+    parser.add_argument("--device", choices=["auto", "cuda", "xpu", "mps", "cpu"], default="auto",
+                        help="Compute device. Use --device cuda to require an NVIDIA GPU.")
+    parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
+    parser.add_argument("--workers", type=int, default=WORKERS)
+    parser.add_argument("--epochs", type=int, default=EPOCHS)
     args = parser.parse_args()
+    if args.batch_size < 1 or args.workers < 0 or args.epochs < 1:
+        parser.error("--batch-size and --epochs must be positive; --workers cannot be negative.")
     random.seed(42)
     torch.manual_seed(42)
-    if hasattr(torch, "xpu") and torch.xpu.is_available():
+    if args.device == "cuda":
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA was requested but PyTorch cannot access an NVIDIA GPU. Check the NVIDIA driver and CUDA-enabled PyTorch install.")
+        device = torch.device("cuda")
+    elif args.device == "xpu":
+        if not (hasattr(torch, "xpu") and torch.xpu.is_available()):
+            raise RuntimeError("XPU was requested but PyTorch cannot access an Intel GPU.")
         device = torch.device("xpu")
-        print(f"Using Intel XPU: {torch.xpu.get_device_name(0)}")
+    elif args.device == "mps":
+        if not (hasattr(torch.backends, "mps") and torch.backends.mps.is_available()):
+            raise RuntimeError("MPS was requested but Apple MPS is unavailable.")
+        device = torch.device("mps")
+    elif args.device == "cpu":
+        device = torch.device("cpu")
     elif torch.cuda.is_available():
         device = torch.device("cuda")
-        print(f"Using CUDA: {torch.cuda.get_device_name(0)}")
+    elif hasattr(torch, "xpu") and torch.xpu.is_available():
+        device = torch.device("xpu")
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         device = torch.device("mps")
-        print("Using Apple MPS GPU")
     else:
         device = torch.device("cpu")
+
+    if device.type == "cuda":
+        print(f"Using CUDA: {torch.cuda.get_device_name(device)}")
+        print(f"CUDA version in PyTorch: {torch.version.cuda}")
+    elif device.type == "xpu":
+        print(f"Using Intel XPU: {torch.xpu.get_device_name(0)}")
+    elif device.type == "mps":
+        print("Using Apple MPS GPU")
+    else:
         print("Using CPU")
+    print(f"Batch size: {args.batch_size} | Workers: {args.workers} | Epochs: {args.epochs}")
 
     annotations = read_annotations(DATA_ROOT)
     train_ids = read_split(DATA_ROOT, "trainset")
@@ -229,16 +257,16 @@ def main():
     print(f"IAM lines — train: {len(train_data)}, validation: {len(valid_data)}, test: {len(test_data)}")
 
     train_loader = DataLoader(
-        train_data, batch_size=BATCH_SIZE, shuffle=True,
-        num_workers=WORKERS, collate_fn=collate_lines,
+        train_data, batch_size=args.batch_size, shuffle=True,
+        num_workers=args.workers, pin_memory=(device.type == "cuda"), collate_fn=collate_lines,
     )
     valid_loader = DataLoader(
-        valid_data, batch_size=BATCH_SIZE, shuffle=False,
-        num_workers=WORKERS, collate_fn=collate_lines,
+        valid_data, batch_size=args.batch_size, shuffle=False,
+        num_workers=args.workers, pin_memory=(device.type == "cuda"), collate_fn=collate_lines,
     )
     test_loader = DataLoader(
-        test_data, batch_size=BATCH_SIZE, shuffle=False,
-        num_workers=WORKERS, collate_fn=collate_lines,
+        test_data, batch_size=args.batch_size, shuffle=False,
+        num_workers=args.workers, pin_memory=(device.type == "cuda"), collate_fn=collate_lines,
     )
 
     model = IAMCRNN().to(device)
@@ -262,12 +290,12 @@ def main():
 
     patience, no_improvement = 6, 0
 
-    for epoch in range(start_epoch, EPOCHS + 1):
+    for epoch in range(start_epoch, args.epochs + 1):
         train_loss, train_cer = run_epoch(model, train_loader, criterion, device, optimizer)
         valid_loss, valid_cer = run_epoch(model, valid_loader, criterion, device)
         scheduler.step(valid_cer)
         print(
-            f"Epoch {epoch:02d}/{EPOCHS} | "
+            f"Epoch {epoch:02d}/{args.epochs} | "
             f"train loss {train_loss:.4f}, CER {train_cer:.2%} | "
             f"valid loss {valid_loss:.4f}, CER {valid_cer:.2%}"
         )

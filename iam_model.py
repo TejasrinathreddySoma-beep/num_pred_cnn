@@ -40,8 +40,8 @@ class IAMCRNN(nn.Module):
 
     @staticmethod
     def output_lengths(widths):
-        # Two 2x2 pools reduce width by a factor of four (ceil rounding).
-        return (widths + 3) // 4
+        # Two 2x2 max-pooling layers use floor rounding for the width.
+        return widths // 4
 
 
 def greedy_decode(log_probs, input_lengths):

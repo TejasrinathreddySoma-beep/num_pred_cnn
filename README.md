@@ -320,3 +320,26 @@ python -m streamlit run streamlit_app.py
 ```
 
 Choose **IAM handwritten text line**, upload one cropped line image, and click **Recognize handwritten line**. The EMNIST digits-and-letters option remains available separately. This is line recognition, not full-page recognition.
+
+
+## Standalone HTML handwriting reader (ChatGPT-inspired UI)
+
+A separate HTML/CSS/JavaScript frontend with a FastAPI backend is available alongside the original Streamlit demo. It uses the same local `iam_crnn_ctc.pth` checkpoint and `predict_iam.py` inference code. It does not retrain or replace the model.
+
+Install the web dependencies in the active virtual environment:
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+Keep `iam_crnn_ctc.pth` in the project root, then start the web server:
+
+```powershell
+python -m uvicorn web_app:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Open **http://127.0.0.1:8000** in your browser. The page shows whether the IAM checkpoint loaded and which compute device is selected. Upload a whole page or a single line, recognize it, edit the text, then copy or download the result.
+
+For NVIDIA RTX, install a CUDA-enabled PyTorch build using the official [PyTorch installation selector](https://pytorch.org/get-started/locally/) before installing the remaining requirements. Check `torch.cuda.is_available()` to verify CUDA. On a supported Intel machine, the existing predictor may select XPU; otherwise it uses CPU.
+
+The page splitter is a heuristic and may need tuning for touching, slanted, or tightly spaced handwriting. Single-line mode bypasses page segmentation. The existing Streamlit application remains available with `python -m streamlit run streamlit_app.py`.

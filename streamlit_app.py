@@ -109,19 +109,20 @@ def predict_characters(model, device, source):
     return results
 
 
-st.set_page_config(page_title="Handwritten Character Recognizer", page_icon="✍️", layout="wide")
+st.set_page_config(page_title="Handwriting Reader", page_icon="✍️", layout="wide")
+st.markdown("<style>.block-container{max-width:1180px;padding-top:2rem;}div[data-testid='stMetric']{border:1px solid rgba(128,128,128,.25);padding:12px;border-radius:12px;}</style>", unsafe_allow_html=True)
 
 recognition_mode = st.radio(
     "Choose recognition model",
-    ["EMNIST digits and letters", "IAM handwritten text line"],
+    ["IAM handwritten text line", "EMNIST digits and letters"],
     horizontal=True,
 )
 
 if recognition_mode == "IAM handwritten text line":
     from predict_iam import get_inference_device, load_model as load_iam_model, predict_line
 
-    st.title("✍️ IAM Handwritten Text-Line Recognizer")
-    st.write("Upload one cropped handwritten text line. The trained CNN + BiLSTM + CTC model predicts the complete line without separating individual characters.")
+    st.title("✍️ IAM Handwriting Reader")
+    st.write("Read a handwritten line or a page with multiple separated lines. The trained CNN + BiLSTM + CTC model predicts words, not isolated character boxes.")
     iam_checkpoint = Path("iam_crnn_ctc.pth")
     device = get_inference_device()
 
@@ -135,16 +136,54 @@ if recognition_mode == "IAM handwritten text line":
         st.stop()
 
     model = cached_iam_model(str(iam_checkpoint), str(device))
-    st.caption(f"Loaded IAM trained weights · Running on: {device}")
-    st.info("This version recognizes one cropped text line per image. Full-page line detection and paragraph reconstruction are not included yet.")
-    uploaded_line = st.file_uploader("Upload a handwritten text-line image", type=["png", "jpg", "jpeg", "bmp"])
+    st.caption(f"Loaded weights: iam_crnn_ctc.pth · Device: {device}")
+    st.info("For best results use a straight, clear scan. Whole-page mode attempts to split separated handwriting lines automatically.")
+    input_kind = st.radio("Input type", ["Whole page (auto-split lines)", "Single text line"], horizontal=True)
+    uploaded_line = st.file_uploader("Upload handwriting image", type=["png", "jpg", "jpeg", "bmp"])
     if uploaded_line is not None:
         line_image = Image.open(uploaded_line).convert("L")
-        st.image(line_image, caption="Input text line", use_container_width=True)
-        if st.button("Recognize handwritten line", type="primary"):
-            prediction = predict_line(model, line_image, device)
-            st.subheader("Recognized text")
-            st.code(prediction if prediction else "(No text detected)")
+        st.image(line_image, caption=f"Uploaded image · {line_image.width} × {line_image.height}px", use_container_width=True)
+        if st.button("✨ Recognize handwriting", type="primary", use_container_width=True):
+            with st.spinner("Recognizing handwriting..."):
+                if input_kind == "Single text line":
+                    line_crops = [line_image]
+                else:
+                    import numpy as np
+                    from PIL import ImageOps
+                    gray = ImageOps.autocontrast(line_image)
+                    arr = np.asarray(gray, dtype=np.uint8)
+                    ink = arr < 190
+                    projection = np.convolve(ink.sum(axis=1).astype(float), np.ones(7)/7, mode="same")
+                    active = projection >= max(2, arr.shape[1] * 0.002)
+                    indices = np.flatnonzero(active)
+                    line_crops = []
+                    if len(indices):
+                        groups, start_y, previous = [], int(indices[0]), int(indices[0])
+                        for y in indices[1:]:
+                            y = int(y)
+                            if y - previous > 8:
+                                if previous - start_y >= 7: groups.append((start_y, previous + 1))
+                                start_y = y
+                            previous = y
+                        if previous - start_y >= 7: groups.append((start_y, previous + 1))
+                        for y0, y1 in groups:
+                            if y1-y0 < 10: continue
+                            cols = np.flatnonzero(ink[y0:y1].any(axis=0))
+                            if len(cols):
+                                pad = max(5, int(arr.shape[1]*.008))
+                                line_crops.append(gray.crop((max(0,int(cols[0])-pad), max(0,y0-5), min(arr.shape[1],int(cols[-1])+1+pad), min(arr.shape[0],y1+5))))
+                if not line_crops:
+                    st.warning("No lines detected. Try Single text line mode or upload a clearer image.")
+                else:
+                    predictions = [predict_line(model, crop, device) for crop in line_crops]
+                    recognized = "\\n".join(text.strip() for text in predictions)
+                    st.success(f"Processed {len(predictions)} line(s)")
+                    st.subheader("Recognized text")
+                    st.text_area("Review and copy the result", value=recognized, height=min(360,max(130,48*len(predictions))))
+                    st.download_button("Download recognized text", data=recognized, file_name="recognized_handwriting.txt", mime="text/plain")
+                    with st.expander("View detected line crops"):
+                        for index, (crop, text) in enumerate(zip(line_crops,predictions),1):
+                            st.image(crop, caption=f"Line {index}: {text}", use_container_width=True)
     st.stop()
 
 st.title("✍️ Handwritten Digit & Alphabet Recognizer")

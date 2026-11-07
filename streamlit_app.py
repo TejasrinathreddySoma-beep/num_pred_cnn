@@ -292,15 +292,16 @@ if recognition_mode == "IAM handwritten text line":
                 result_col2.metric("Non-empty predictions", f"{nonempty_count}/{len(predictions)}")
                 if not recognized.strip():
                     st.warning("The model returned an empty result. Check that the uploaded image has dark handwriting on a light background and that it contains a complete text line.")
-                st.text_area(
+                text_widget_key = f"iam_recognized_text_{upload_id[:12]}"
+                edited_text = st.text_area(
                     "Edit or copy the recognized text",
                     value=recognized,
                     height=max(150, min(420, 58 * max(1, len(predictions)))),
-                    key="iam_recognized_text",
+                    key=text_widget_key,
                 )
                 st.download_button(
                     "⬇️ Download text file",
-                    data=st.session_state.get("iam_recognized_text", recognized),
+                    data=edited_text,
                     file_name="recognized_handwriting.txt",
                     mime="text/plain",
                     use_container_width=True,

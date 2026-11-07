@@ -176,7 +176,7 @@ if recognition_mode == "IAM handwritten text line":
                     st.warning("No lines detected. Try Single text line mode or upload a clearer image.")
                 else:
                     predictions = [predict_line(model, crop, device) for crop in line_crops]
-                    recognized = "\\n".join(text.strip() for text in predictions)
+                    recognized = "\n".join(text.strip() for text in predictions)
                     st.success(f"Processed {len(predictions)} line(s)")
                     st.subheader("Recognized text")
                     st.text_area("Review and copy the result", value=recognized, height=min(360,max(130,48*len(predictions))))

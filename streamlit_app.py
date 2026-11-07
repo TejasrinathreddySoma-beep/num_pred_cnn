@@ -121,8 +121,28 @@ recognition_mode = st.radio(
 if recognition_mode == "IAM handwritten text line":
     from predict_iam import get_inference_device, load_model as load_iam_model, predict_line
 
-    st.title("✍️ IAM Handwriting Reader")
-    st.write("Read a handwritten line or a page with multiple separated lines. The trained CNN + BiLSTM + CTC model predicts words, not isolated character boxes.")
+    st.markdown("""
+    <style>
+      .block-container {max-width: 1120px; padding-top: 1.6rem; padding-bottom: 3rem;}
+      .iam-hero {padding: 1.35rem 1.5rem; border-radius: 18px;
+        background: linear-gradient(120deg, rgba(70,110,190,.18), rgba(25,160,130,.10));
+        border: 1px solid rgba(128,128,128,.22); margin-bottom: 1rem;}
+      .iam-muted {color: var(--text-color); opacity: .72; font-size: .92rem;}
+      div.stButton > button[kind="primary"] {border-radius: 10px; min-height: 2.8rem;}
+      div[data-testid="stTextArea"] textarea {font-size: 1.05rem; line-height: 1.65;}
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div class="iam-hero">
+      <h1 style="margin:0">✍️ IAM Handwriting Reader</h1>
+      <p class="iam-muted" style="margin:.5rem 0 0">
+        Turn handwritten lines into editable text. Upload a page or a single line,
+        review the result, then copy or download it.
+      </p>
+    </div>
+    """, unsafe_allow_html=True)
+
     iam_checkpoint = Path("iam_crnn_ctc.pth")
     device = get_inference_device()
 
@@ -131,21 +151,84 @@ if recognition_mode == "IAM handwritten text line":
         return load_iam_model(checkpoint_path, torch.device(device_name))
 
     if not iam_checkpoint.is_file():
-        st.error("The trained IAM weights are missing. Copy iam_crnn_ctc.pth into the project root.")
-        st.code("iam_crnn_ctc.pth", language="text")
+        st.error("IAM checkpoint not found. Place iam_crnn_ctc.pth in the project root.")
+        st.code("num_pred_cnn/iam_crnn_ctc.pth", language="text")
         st.stop()
 
-    model = cached_iam_model(str(iam_checkpoint.resolve()), iam_checkpoint.stat().st_mtime, str(device))
-    st.caption(f"Loaded weights: iam_crnn_ctc.pth · Device: {device}")
-    st.info("For best results use a straight, clear scan. Whole-page mode attempts to split separated handwriting lines automatically.")
-    input_kind = st.radio("Input type", ["Whole page (auto-split lines)", "Single text line"], horizontal=True)
-    uploaded_line = st.file_uploader("Upload handwriting image", type=["png", "jpg", "jpeg", "bmp"])
+    try:
+        model = cached_iam_model(
+            str(iam_checkpoint.resolve()), iam_checkpoint.stat().st_mtime, str(device)
+        )
+    except Exception as exc:
+        st.error(f"Could not load the IAM checkpoint: {exc}")
+        st.stop()
+
+    info_col1, info_col2, info_col3 = st.columns([1.1, 1, 1])
+    info_col1.metric("Recognition model", "IAM CNN + BiLSTM + CTC")
+    info_col2.metric("Compute device", str(device).upper())
+    info_col3.metric("Checkpoint", "Loaded ✓")
+    if device.type == "xpu":
+        st.caption("Intel GPU acceleration is active. CUDA will be selected automatically when an NVIDIA CUDA GPU is available.")
+    elif device.type == "cuda":
+        st.caption(f"NVIDIA GPU: {torch.cuda.get_device_name(device)}")
+    else:
+        st.caption("Running on CPU.")
+
+    with st.container(border=True):
+        st.subheader("1 · Choose your image")
+        mode_col, help_col = st.columns([1.2, 1])
+        with mode_col:
+            input_kind = st.radio(
+                "Image type",
+                ["Whole page · detect lines", "Single handwritten line"],
+                horizontal=True,
+                key="iam_input_kind",
+            )
+        with help_col:
+            st.caption("Tip: use a sharp, upright image with dark writing on a light background.")
+        uploaded_line = st.file_uploader(
+            "Upload a handwriting image",
+            type=["png", "jpg", "jpeg", "bmp", "tif", "tiff"],
+            key="iam_upload",
+        )
+
     if uploaded_line is not None:
-        line_image = Image.open(uploaded_line).convert("L")
-        st.image(line_image, caption=f"Uploaded image · {line_image.width} × {line_image.height}px", use_container_width=True)
-        if st.button("✨ Recognize handwriting", type="primary", use_container_width=True):
-            with st.spinner("Recognizing handwriting..."):
-                if input_kind == "Single text line":
+        upload_bytes = uploaded_line.getvalue()
+        import hashlib
+        upload_id = hashlib.sha256(upload_bytes + input_kind.encode()).hexdigest()
+        try:
+            line_image = Image.open(uploaded_line).convert("L")
+        except Exception as exc:
+            st.error(f"Could not open this image: {exc}")
+            st.stop()
+
+        preview_col, details_col = st.columns([1.55, 1], gap="large")
+        with preview_col:
+            st.subheader("Image preview")
+            st.image(line_image, use_container_width=True)
+        with details_col:
+            st.subheader("Before recognition")
+            st.write(f"**Dimensions:** {line_image.width} × {line_image.height} px")
+            st.write(f"**Mode:** {input_kind}")
+            st.write("**Checkpoint:** iam_crnn_ctc.pth")
+            st.caption("For full-page images, line separation is automatic and works best when lines do not touch.")
+
+        run_col, clear_col = st.columns([3, 1])
+        with run_col:
+            recognize_clicked = st.button(
+                "✨ Recognize handwriting", type="primary", use_container_width=True,
+                key="iam_recognize",
+            )
+        with clear_col:
+            clear_clicked = st.button("Clear result", use_container_width=True, key="iam_clear")
+
+        if clear_clicked:
+            st.session_state.pop("iam_result", None)
+            st.rerun()
+
+        if recognize_clicked:
+            with st.spinner("Reading handwriting…"):
+                if input_kind == "Single handwritten line":
                     line_crops = [line_image]
                 else:
                     import numpy as np
@@ -153,7 +236,9 @@ if recognition_mode == "IAM handwritten text line":
                     gray = ImageOps.autocontrast(line_image)
                     arr = np.asarray(gray, dtype=np.uint8)
                     ink = arr < 190
-                    projection = np.convolve(ink.sum(axis=1).astype(float), np.ones(7)/7, mode="same")
+                    projection = np.convolve(
+                        ink.sum(axis=1).astype(float), np.ones(7) / 7, mode="same"
+                    )
                     active = projection >= max(2, arr.shape[1] * 0.002)
                     indices = np.flatnonzero(active)
                     line_crops = []
@@ -162,28 +247,75 @@ if recognition_mode == "IAM handwritten text line":
                         for y in indices[1:]:
                             y = int(y)
                             if y - previous > 8:
-                                if previous - start_y >= 7: groups.append((start_y, previous + 1))
+                                if previous - start_y >= 7:
+                                    groups.append((start_y, previous + 1))
                                 start_y = y
                             previous = y
-                        if previous - start_y >= 7: groups.append((start_y, previous + 1))
+                        if previous - start_y >= 7:
+                            groups.append((start_y, previous + 1))
                         for y0, y1 in groups:
-                            if y1-y0 < 10: continue
+                            if y1 - y0 < 10:
+                                continue
                             cols = np.flatnonzero(ink[y0:y1].any(axis=0))
                             if len(cols):
-                                pad = max(5, int(arr.shape[1]*.008))
-                                line_crops.append(gray.crop((max(0,int(cols[0])-pad), max(0,y0-5), min(arr.shape[1],int(cols[-1])+1+pad), min(arr.shape[0],y1+5))))
+                                pad = max(5, int(arr.shape[1] * 0.008))
+                                line_crops.append(gray.crop((
+                                    max(0, int(cols[0]) - pad), max(0, y0 - 5),
+                                    min(arr.shape[1], int(cols[-1]) + 1 + pad),
+                                    min(arr.shape[0], y1 + 5),
+                                )))
+
                 if not line_crops:
-                    st.warning("No lines detected. Try Single text line mode or upload a clearer image.")
+                    st.session_state["iam_result"] = {
+                        "upload_id": upload_id, "crops": [], "predictions": [],
+                        "error": "No separate text lines were detected. Try Single handwritten line mode or a clearer image.",
+                    }
                 else:
-                    predictions = [predict_line(model, crop, device) for crop in line_crops]
-                    recognized = "\n".join(text.strip() for text in predictions)
-                    st.success(f"Processed {len(predictions)} line(s)")
-                    st.subheader("Recognized text")
-                    st.text_area("Review and copy the result", value=recognized, height=min(360,max(130,48*len(predictions))))
-                    st.download_button("Download recognized text", data=recognized, file_name="recognized_handwriting.txt", mime="text/plain")
-                    with st.expander("View detected line crops"):
-                        for index, (crop, text) in enumerate(zip(line_crops,predictions),1):
-                            st.image(crop, caption=f"Line {index}: {text}", use_container_width=True)
+                    predictions = [predict_line(model, crop, device).strip() for crop in line_crops]
+                    st.session_state["iam_result"] = {
+                        "upload_id": upload_id, "crops": line_crops,
+                        "predictions": predictions, "error": None,
+                    }
+
+        result = st.session_state.get("iam_result")
+        if result and result.get("upload_id") == upload_id:
+            if result.get("error"):
+                st.warning(result["error"])
+            else:
+                predictions = result["predictions"]
+                recognized = "\\n".join(predictions)
+                nonempty_count = sum(bool(item) for item in predictions)
+                st.divider()
+                st.subheader("2 · Recognition result")
+                result_col1, result_col2 = st.columns(2)
+                result_col1.metric("Lines detected", len(predictions))
+                result_col2.metric("Non-empty predictions", f"{nonempty_count}/{len(predictions)}")
+                if not recognized.strip():
+                    st.warning("The model returned an empty result. Check that the uploaded image has dark handwriting on a light background and that it contains a complete text line.")
+                st.text_area(
+                    "Edit or copy the recognized text",
+                    value=recognized,
+                    height=max(150, min(420, 58 * max(1, len(predictions)))),
+                    key="iam_recognized_text",
+                )
+                st.download_button(
+                    "⬇️ Download text file",
+                    data=st.session_state.get("iam_recognized_text", recognized),
+                    file_name="recognized_handwriting.txt",
+                    mime="text/plain",
+                    use_container_width=True,
+                )
+                with st.expander(f"Show detected line images ({len(result['crops'])})"):
+                    for index, (crop, line_text) in enumerate(
+                        zip(result["crops"], predictions), start=1
+                    ):
+                        st.markdown(f"**Line {index}**")
+                        crop_col, text_col = st.columns([1, 2])
+                        crop_col.image(crop, use_container_width=True)
+                        text_col.write(line_text if line_text else "_No text predicted for this line._")
+    else:
+        st.info("Upload a clear handwritten page or a single text line to get started.")
+
     st.stop()
 
 st.title("✍️ Handwritten Digit & Alphabet Recognizer")

@@ -120,28 +120,35 @@ recognition_mode = st.radio(
 
 if recognition_mode == "IAM handwritten text line":
     from predict_iam import get_inference_device, load_model as load_iam_model, predict_line
+    from scipy.ndimage import gaussian_filter1d
+    from scipy.signal import find_peaks
+    import hashlib
 
+    # ChatGPT-inspired layout: centered conversation column, restrained chrome,
+    # one upload action, then a clean assistant-style result.
     st.markdown("""
     <style>
-      .block-container {max-width: 1120px; padding-top: 1.6rem; padding-bottom: 3rem;}
-      .iam-hero {padding: 1.35rem 1.5rem; border-radius: 18px;
-        background: linear-gradient(120deg, rgba(70,110,190,.18), rgba(25,160,130,.10));
-        border: 1px solid rgba(128,128,128,.22); margin-bottom: 1rem;}
-      .iam-muted {color: var(--text-color); opacity: .72; font-size: .92rem;}
-      div.stButton > button[kind="primary"] {border-radius: 10px; min-height: 2.8rem;}
-      div[data-testid="stTextArea"] textarea {font-size: 1.05rem; line-height: 1.65;}
+      .block-container {max-width: 850px; padding-top: 2.0rem; padding-bottom: 5rem;}
+      header[data-testid="stHeader"] {background: transparent;}
+      .iam-heading {font-size: 2rem; font-weight: 650; letter-spacing: -.035em; margin: 0 0 .35rem;}
+      .iam-subtitle {color: var(--text-color); opacity: .68; font-size: .96rem; margin-bottom: 1.5rem;}
+      .iam-status {display:inline-flex; gap:.45rem; align-items:center; padding:.35rem .7rem;
+        border:1px solid rgba(128,128,128,.25); border-radius:999px; font-size:.78rem;
+        opacity:.82; margin:.15rem .35rem .9rem 0;}
+      .iam-panel {border:1px solid rgba(128,128,128,.24); border-radius:18px;
+        padding:1rem 1.1rem; background:rgba(128,128,128,.045); margin:.5rem 0 1.1rem;}
+      .iam-assistant {border:1px solid rgba(128,128,128,.20); border-radius:18px;
+        padding:1.1rem 1.25rem; margin-top:1rem; background:rgba(128,128,128,.055);}
+      .iam-result-label {font-size:.78rem; text-transform:uppercase; letter-spacing:.08em;
+        opacity:.58; margin-bottom:.55rem;}
+      div.stButton > button[kind="primary"] {border-radius:999px; min-height:2.8rem;}
+      div[data-testid="stTextArea"] textarea {font-size:1rem; line-height:1.65; border-radius:12px;}
+      div[data-testid="stFileUploader"] {border-radius:14px;}
     </style>
     """, unsafe_allow_html=True)
 
-    st.markdown("""
-    <div class="iam-hero">
-      <h1 style="margin:0">✍️ IAM Handwriting Reader</h1>
-      <p class="iam-muted" style="margin:.5rem 0 0">
-        Turn handwritten lines into editable text. Upload a page or a single line,
-        review the result, then copy or download it.
-      </p>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown('<div class="iam-heading">✍️ Handwriting Reader</div>', unsafe_allow_html=True)
+    st.markdown('<div class="iam-subtitle">Upload a handwritten page or line. I’ll turn it into editable text.</div>', unsafe_allow_html=True)
 
     iam_checkpoint = Path("iam_crnn_ctc.pth")
     device = get_inference_device()
@@ -151,124 +158,132 @@ if recognition_mode == "IAM handwritten text line":
         return load_iam_model(checkpoint_path, torch.device(device_name))
 
     if not iam_checkpoint.is_file():
-        st.error("IAM checkpoint not found. Place iam_crnn_ctc.pth in the project root.")
-        st.code("num_pred_cnn/iam_crnn_ctc.pth", language="text")
+        st.error("The IAM model file is missing. Put iam_crnn_ctc.pth in the project folder.")
         st.stop()
-
     try:
-        model = cached_iam_model(
-            str(iam_checkpoint.resolve()), iam_checkpoint.stat().st_mtime, str(device)
-        )
+        model = cached_iam_model(str(iam_checkpoint.resolve()), iam_checkpoint.stat().st_mtime, str(device))
     except Exception as exc:
-        st.error(f"Could not load the IAM checkpoint: {exc}")
+        st.error(f"Could not load IAM model: {exc}")
         st.stop()
 
-    info_col1, info_col2, info_col3 = st.columns([1.1, 1, 1])
-    info_col1.metric("Recognition model", "IAM CNN + BiLSTM + CTC")
-    info_col2.metric("Compute device", str(device).upper())
-    info_col3.metric("Checkpoint", "Loaded ✓")
-    if device.type == "xpu":
-        st.caption("Intel GPU acceleration is active. CUDA will be selected automatically when an NVIDIA CUDA GPU is available.")
-    elif device.type == "cuda":
-        st.caption(f"NVIDIA GPU: {torch.cuda.get_device_name(device)}")
-    else:
-        st.caption("Running on CPU.")
+    device_label = torch.cuda.get_device_name(device) if device.type == "cuda" else str(device).upper()
+    st.markdown(
+        f'<span class="iam-status">● IAM model loaded</span>'
+        f'<span class="iam-status">▣ iam_crnn_ctc.pth</span>'
+        f'<span class="iam-status">◉ {device_label}</span>',
+        unsafe_allow_html=True,
+    )
 
-    with st.container(border=True):
-        st.subheader("1 · Choose your image")
-        mode_col, help_col = st.columns([1.2, 1])
-        with mode_col:
-            input_kind = st.radio(
-                "Image type",
-                ["Whole page · detect lines", "Single handwritten line"],
-                horizontal=True,
-                key="iam_input_kind",
-            )
-        with help_col:
-            st.caption("Tip: use a sharp, upright image with dark writing on a light background.")
+    with st.container():
+        input_kind = st.radio(
+            "What are you uploading?",
+            ["Whole page", "Single text line"],
+            horizontal=True,
+            key="iam_input_kind",
+        )
         uploaded_line = st.file_uploader(
-            "Upload a handwriting image",
+            "Drop an image here or browse files",
             type=["png", "jpg", "jpeg", "bmp", "tif", "tiff"],
             key="iam_upload",
+            label_visibility="visible",
         )
 
-    if uploaded_line is not None:
-        upload_bytes = uploaded_line.getvalue()
-        import hashlib
-        upload_id = hashlib.sha256(upload_bytes + input_kind.encode()).hexdigest()
+    if uploaded_line is None:
+        st.caption("For best results: use a straight, well-lit image with dark handwriting on a light background.")
+    else:
+        raw_bytes = uploaded_line.getvalue()
+        upload_id = hashlib.sha256(raw_bytes + input_kind.encode()).hexdigest()
         try:
             line_image = Image.open(uploaded_line).convert("L")
         except Exception as exc:
-            st.error(f"Could not open this image: {exc}")
+            st.error(f"Could not open the image: {exc}")
             st.stop()
 
-        preview_col, details_col = st.columns([1.55, 1], gap="large")
-        with preview_col:
-            st.subheader("Image preview")
+        with st.expander(f"Preview uploaded image · {line_image.width} × {line_image.height} px", expanded=True):
             st.image(line_image, use_container_width=True)
-        with details_col:
-            st.subheader("Before recognition")
-            st.write(f"**Dimensions:** {line_image.width} × {line_image.height} px")
-            st.write(f"**Mode:** {input_kind}")
-            st.write("**Checkpoint:** iam_crnn_ctc.pth")
-            st.caption("For full-page images, line separation is automatic and works best when lines do not touch.")
 
-        run_col, clear_col = st.columns([3, 1])
-        with run_col:
-            recognize_clicked = st.button(
-                "✨ Recognize handwriting", type="primary", use_container_width=True,
-                key="iam_recognize",
-            )
-        with clear_col:
-            clear_clicked = st.button("Clear result", use_container_width=True, key="iam_clear")
-
+        recognize_clicked = st.button("Recognize handwriting", type="primary", use_container_width=True, key="iam_recognize")
+        clear_clicked = st.button("Start over", use_container_width=False, key="iam_clear")
         if clear_clicked:
             st.session_state.pop("iam_result", None)
             st.rerun()
 
         if recognize_clicked:
             with st.spinner("Reading handwriting…"):
-                if input_kind == "Single handwritten line":
+                if input_kind == "Single text line":
                     line_crops = [line_image]
                 else:
-                    import numpy as np
-                    from PIL import ImageOps
                     gray = ImageOps.autocontrast(line_image)
                     arr = np.asarray(gray, dtype=np.uint8)
-                    ink = arr < 190
-                    projection = np.convolve(
-                        ink.sum(axis=1).astype(float), np.ones(7) / 7, mode="same"
-                    )
-                    active = projection >= max(2, arr.shape[1] * 0.002)
+                    # Support dark ink on light paper and inverted scans.
+                    border = np.concatenate((arr[0, :], arr[-1, :], arr[:, 0], arr[:, -1]))
+                    if float(np.median(border)) < 127:
+                        arr = 255 - arr
+                    # A stronger adaptive row threshold suppresses isolated noise,
+                    # which previously joined neighbouring text lines into one band.
+                    ink = arr < 205
+                    row_ink = ink.sum(axis=1).astype(float)
+                    smooth = gaussian_filter1d(row_ink, sigma=1.8)
+                    threshold = max(2.0, arr.shape[1] * 0.0035)
+                    active = smooth >= threshold
+                    # Fill only tiny gaps inside a stroke, never normal inter-line space.
+                    active = ndimage.binary_closing(active, structure=np.ones(3, dtype=bool))
                     indices = np.flatnonzero(active)
-                    line_crops = []
+                    groups = []
                     if len(indices):
-                        groups, start_y, previous = [], int(indices[0]), int(indices[0])
+                        group_start = previous = int(indices[0])
+                        max_gap = max(5, int(arr.shape[0] * 0.008))
                         for y in indices[1:]:
                             y = int(y)
-                            if y - previous > 8:
-                                if previous - start_y >= 7:
-                                    groups.append((start_y, previous + 1))
-                                start_y = y
+                            if y - previous > max_gap:
+                                if previous - group_start >= 5:
+                                    groups.append((group_start, previous + 1))
+                                group_start = y
                             previous = y
-                        if previous - start_y >= 7:
-                            groups.append((start_y, previous + 1))
-                        for y0, y1 in groups:
-                            if y1 - y0 < 10:
-                                continue
-                            cols = np.flatnonzero(ink[y0:y1].any(axis=0))
-                            if len(cols):
-                                pad = max(5, int(arr.shape[1] * 0.008))
-                                line_crops.append(gray.crop((
-                                    max(0, int(cols[0]) - pad), max(0, y0 - 5),
-                                    min(arr.shape[1], int(cols[-1]) + 1 + pad),
-                                    min(arr.shape[0], y1 + 5),
-                                )))
+                        if previous - group_start >= 5:
+                            groups.append((group_start, previous + 1))
+
+                    # If ink strokes connect vertically, use row-projection peaks
+                    # to estimate separate text baselines and cut at the valleys.
+                    if len(groups) <= 2:
+                        min_distance = max(20, int(arr.shape[0] * 0.065))
+                        peaks, _ = find_peaks(
+                            smooth, distance=min_distance,
+                            prominence=max(2.0, float(smooth.max()) * 0.035),
+                        )
+                        if len(peaks) >= 3:
+                            cuts = []
+                            for left, right in zip(peaks[:-1], peaks[1:]):
+                                valley = int(left + np.argmin(smooth[left:right + 1]))
+                                cuts.append(valley)
+                            bounds = [0] + cuts + [arr.shape[0]]
+                            peak_groups = []
+                            for top, bottom in zip(bounds[:-1], bounds[1:]):
+                                if bottom - top < 12:
+                                    continue
+                                local = smooth[top:bottom]
+                                if local.size and local.max() >= threshold:
+                                    peak_groups.append((top, bottom))
+                            if len(peak_groups) > len(groups):
+                                groups = peak_groups
+
+                    line_crops = []
+                    for y0, y1 in groups:
+                        region = ink[y0:y1]
+                        cols = np.flatnonzero(region.any(axis=0))
+                        if not len(cols):
+                            continue
+                        pad_x = max(5, int(arr.shape[1] * 0.006))
+                        pad_y = max(4, int(arr.shape[0] * 0.006))
+                        top, bottom = max(0, y0 - pad_y), min(arr.shape[0], y1 + pad_y)
+                        left, right = max(0, int(cols[0]) - pad_x), min(arr.shape[1], int(cols[-1]) + 1 + pad_x)
+                        if bottom - top >= 10 and right - left >= 20:
+                            line_crops.append(Image.fromarray(arr[top:bottom, left:right]))
 
                 if not line_crops:
                     st.session_state["iam_result"] = {
                         "upload_id": upload_id, "crops": [], "predictions": [],
-                        "error": "No separate text lines were detected. Try Single handwritten line mode or a clearer image.",
+                        "error": "I couldn't find text lines. Try Single text line or a clearer, closer image.",
                     }
                 else:
                     predictions = [predict_line(model, crop, device).strip() for crop in line_crops]
@@ -284,38 +299,26 @@ if recognition_mode == "IAM handwritten text line":
             else:
                 predictions = result["predictions"]
                 recognized = "\\n".join(predictions)
-                nonempty_count = sum(bool(item) for item in predictions)
-                st.divider()
-                st.subheader("2 · Recognition result")
-                result_col1, result_col2 = st.columns(2)
-                result_col1.metric("Lines detected", len(predictions))
-                result_col2.metric("Non-empty predictions", f"{nonempty_count}/{len(predictions)}")
+                st.markdown('<div class="iam-assistant"><div class="iam-result-label">Recognized text</div>', unsafe_allow_html=True)
+                st.caption(f"{len(predictions)} text line(s) detected")
                 if not recognized.strip():
-                    st.warning("The model returned an empty result. Check that the uploaded image has dark handwriting on a light background and that it contains a complete text line.")
-                text_widget_key = f"iam_recognized_text_{upload_id[:12]}"
+                    st.warning("The model returned no text. Try a clearer crop containing one complete line.")
+                text_key = f"iam_text_{upload_id[:16]}"
                 edited_text = st.text_area(
-                    "Edit or copy the recognized text",
-                    value=recognized,
-                    height=max(150, min(420, 58 * max(1, len(predictions)))),
-                    key=text_widget_key,
+                    "Edit the result", value=recognized, height=max(150, min(420, 52 * max(1, len(predictions)))),
+                    key=text_key, label_visibility="collapsed",
                 )
+                st.markdown("</div>", unsafe_allow_html=True)
                 st.download_button(
-                    "⬇️ Download text file",
-                    data=edited_text,
-                    file_name="recognized_handwriting.txt",
-                    mime="text/plain",
-                    use_container_width=True,
+                    "Download text", data=edited_text, file_name="recognized_handwriting.txt",
+                    mime="text/plain", use_container_width=True,
                 )
-                with st.expander(f"Show detected line images ({len(result['crops'])})"):
-                    for index, (crop, line_text) in enumerate(
-                        zip(result["crops"], predictions), start=1
-                    ):
-                        st.markdown(f"**Line {index}**")
-                        crop_col, text_col = st.columns([1, 2])
-                        crop_col.image(crop, use_container_width=True)
-                        text_col.write(line_text if line_text else "_No text predicted for this line._")
-    else:
-        st.info("Upload a clear handwritten page or a single text line to get started.")
+                with st.expander(f"Show the {len(result['crops'])} detected line crops"):
+                    for number, (crop, line_text) in enumerate(zip(result["crops"], predictions), start=1):
+                        st.markdown(f"**Line {number}**")
+                        st.image(crop, use_container_width=True)
+                        if line_text:
+                            st.caption(line_text)
 
     st.stop()
 

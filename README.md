@@ -292,3 +292,28 @@ The script uses grayscale conversion and contrast normalization, trains a CNN-Bi
 
 - `iam_model.py` — CNN + bidirectional LSTM + CTC model and greedy decoder
 - `train_iam.py` — IAM line dataset loader, grayscale preprocessing, training and CER evaluation
+
+
+## Trained IAM model results
+
+A completed 30-epoch IAM line-recognition run was supplied and checked against this branch's model architecture. The checkpoint uses the same character mapping and image height as `iam_model.py`.
+
+| Result | Value |
+|---|---:|
+| Training device | NVIDIA GeForce RTX 3050 4GB Laptop GPU |
+| Completed epochs | 30 |
+| Best validation CER | 6.74% (epoch 25) |
+| Held-out test CER | 7.79% |
+| Test loss | 0.4188 |
+
+CER is character error rate (lower is better), not character accuracy. The trained checkpoint is a local file named `iam_crnn_ctc.pth`; it is intentionally not stored in Git. Put it in the project root to use the IAM option in Streamlit.
+
+### Use the trained IAM model in Streamlit
+
+Install the project dependencies and place `iam_crnn_ctc.pth` beside `streamlit_app.py`, then run:
+
+```powershell
+python -m streamlit run streamlit_app.py
+```
+
+Choose **IAM handwritten text line**, upload one cropped line image, and click **Recognize handwritten line**. The EMNIST digits-and-letters option remains available separately. This is line recognition, not full-page recognition.

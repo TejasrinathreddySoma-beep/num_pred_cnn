@@ -110,7 +110,45 @@ def predict_characters(model, device, source):
 
 
 st.set_page_config(page_title="Handwritten Character Recognizer", page_icon="✍️", layout="wide")
+
+recognition_mode = st.radio(
+    "Choose recognition model",
+    ["EMNIST digits and letters", "IAM handwritten text line"],
+    horizontal=True,
+)
+
+if recognition_mode == "IAM handwritten text line":
+    from predict_iam import get_inference_device, load_model as load_iam_model, predict_line
+
+    st.title("✍️ IAM Handwritten Text-Line Recognizer")
+    st.write("Upload one cropped handwritten text line. The trained CNN + BiLSTM + CTC model predicts the complete line without separating individual characters.")
+    iam_checkpoint = Path("iam_crnn_ctc.pth")
+    device = get_inference_device()
+
+    @st.cache_resource
+    def cached_iam_model(checkpoint_path, device_name):
+        return load_iam_model(checkpoint_path, torch.device(device_name))
+
+    if not iam_checkpoint.is_file():
+        st.error("The trained IAM weights are missing. Copy iam_crnn_ctc.pth into the project root.")
+        st.code("iam_crnn_ctc.pth", language="text")
+        st.stop()
+
+    model = cached_iam_model(str(iam_checkpoint), str(device))
+    st.caption(f"Loaded IAM trained weights · Running on: {device}")
+    st.info("This version recognizes one cropped text line per image. Full-page line detection and paragraph reconstruction are not included yet.")
+    uploaded_line = st.file_uploader("Upload a handwritten text-line image", type=["png", "jpg", "jpeg", "bmp"])
+    if uploaded_line is not None:
+        line_image = Image.open(uploaded_line).convert("L")
+        st.image(line_image, caption="Input text line", use_container_width=True)
+        if st.button("Recognize handwritten line", type="primary"):
+            prediction = predict_line(model, line_image, device)
+            st.subheader("Recognized text")
+            st.code(prediction if prediction else "(No text detected)")
+    st.stop()
+
 st.title("✍️ Handwritten Digit & Alphabet Recognizer")
+
 st.write(
     "Draw or upload a sequence containing digits (0–9), uppercase letters (A–Z), "
     "or lowercase letters (a–z). Separate characters with visible spaces."

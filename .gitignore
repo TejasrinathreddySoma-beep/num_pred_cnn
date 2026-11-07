@@ -12,3 +12,6 @@ data/
 
 # Generated model weights
 mnist_cnn.pth
+
+# Trained IAM model checkpoint (download/copy locally; do not commit)
+iam_crnn_ctc.pth

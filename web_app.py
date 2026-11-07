@@ -5,7 +5,7 @@ import io
 
 import numpy as np
 import torch
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps
@@ -110,7 +110,7 @@ def status():
 
 
 @app.post("/api/recognize")
-async def recognize(file: UploadFile = File(...), mode: str = "page"):
+async def recognize(file: UploadFile = File(...), mode: str = Form("page")):
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Please upload an image file.")
     try:

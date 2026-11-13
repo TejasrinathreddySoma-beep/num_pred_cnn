@@ -1,52 +1,84 @@
- # Handwritten Digit & Alphabet Recognition (EMNIST ByClass)
+# Handwritten Digit & Character Recognition — EMNIST ByClass
 
-A PyTorch CNN and Streamlit application for recognizing handwritten digits and English letters. The model is trained on **EMNIST ByClass**, which has 62 classes: digits 0–9, uppercase A–Z, and lowercase a–z. The app supports drawing or uploading a sequence of separated characters and predicts each character from left to right.
+A PyTorch convolutional neural network (CNN) that recognizes handwritten digits and English letters from the **EMNIST ByClass** dataset, with a Streamlit interface for drawing or uploading short sequences of separated characters.
 
-## Features
+This repository contains the character-level classifier. It is separate from the line-level IAM handwriting recognizer in the companion repository: [iam_handwriting_recognition](https://github.com/TejasrinathreddySoma-beep/iam_handwriting_recognition).
 
-- 62 output classes: 10 digits + 26 uppercase letters + 26 lowercase letters
-- Multi-character sequences such as `A7b2` or `hello` (characters should be separated)
-- Streamlit drawing canvas and image upload
-- Connected-component segmentation and left-to-right character ordering
-- Per-character top 3 predictions and confidence percentages
-- Character preprocessing to grayscale 28×28 inputs
-- Training-time augmentation (small rotations, shifts, scaling and shear)
-- Intel XPU, NVIDIA CUDA, or CPU device selection
+## What it does
 
-## Dataset and class mapping
+- Classifies **62 character classes**: digits `0–9`, uppercase `A–Z`, and lowercase `a–z`.
+- Lets a user draw characters on a canvas or upload an image.
+- Segments an image into connected components and orders detected components from left to right.
+- Displays a predicted sequence and the top three class probabilities for each detected component.
+- Supports NVIDIA CUDA, Intel XPU (where the installed PyTorch build supports it), and CPU inference/training.
 
-This project uses the torchvision **EMNIST ByClass** split. Its 62 labels are mapped in this order:
+> **Scope:** this is a separated-character recognizer, not a cursive word or full-page handwriting recognizer. Leave visible gaps between characters.
 
-| Class IDs | Characters |
+## Model
+
+The classifier accepts a single-channel 28 × 28 image and uses:
+
+1. Two convolution blocks (32 and 64 filters), each followed by ReLU and 2 × 2 max pooling.
+2. A 128-unit fully connected layer with ReLU and dropout.
+3. A 62-class output layer.
+
+The label order is fixed as:
+
+| Class IDs | Labels |
 |---|---|
-| 0–9 | `0 1 2 3 4 5 6 7 8 9` |
-| 10–35 | `A` through `Z` |
-| 36–61 | `a` through `z` |
+| 0–9 | Digits `0` through `9` |
+| 10–35 | Uppercase `A` through `Z` |
+| 36–61 | Lowercase `a` through `z` |
 
-Uppercase and lowercase letters are separate classes. Some characters look very similar (for example, `C/c`, `O/o`, and `P/p`), so per-character predictions can be uncertain. The EMNIST images are transposed into upright orientation consistently during training and evaluation.
+The training and inference code applies the same EMNIST orientation correction so the characters are upright.
 
-## Model architecture
+## Dataset and measured results
 
-| Layer | Configuration |
+Training uses the torchvision **EMNIST ByClass** split. The script creates a reproducible 90/10 train/validation split from the training partition and evaluates the selected checkpoint on the official test partition.
+
+<badge-placeholder/>
+
+| Metric | Recorded result |
+|---|---:|
+| Test accuracy | **86.06%** |
+| Test loss | **0.3824** |
+| Best validation accuracy | **85.92%** |
+
+These are per-character classification metrics from the committed run, not complete-sequence accuracy. The detailed values are in [outputs/emnist_metrics.json](outputs/emnist_metrics.json), with training curves in [outputs/emnist_accuracy_curve.png](outputs/emnist_accuracy_curve.png) and [outputs/emnist_loss_curve.png](outputs/emnist_loss_curve.png).
+
+## Challenges addressed
+
+- **EMNIST orientation:** raw EMNIST samples are not presented in the same orientation as ordinary handwritten images. A consistent transpose is applied in both training and evaluation.
+- **62-way classification:** uppercase and lowercase letters are separate labels, which is more difficult than digit-only MNIST classification. The class mapping is explicit and shared with prediction.
+- **Dataset memory:** training and validation views share one loaded training dataset instead of loading duplicate image arrays.
+- **Input variation:** random rotation, translation, scaling, and shear augmentation help the classifier handle modest differences in handwriting.
+- **Hardware differences:** device selection prefers a supported Intel XPU, then CUDA, then CPU; CPU-only execution remains available.
+- **Character segmentation:** connected-component analysis gives a simple left-to-right sequence workflow. It works best when characters do not touch and detached strokes are limited.
+
+## Repository contents
+
+| Path | Purpose |
 |---|---|
-| Input | 1 × 28 × 28 grayscale |
-| Convolution 1 | 32 filters, 3×3, ReLU |
-| Max pooling | 2×2 |
-| Convolution 2 | 64 filters, 3×3, ReLU |
-| Max pooling | 2×2 |
-| Flatten | 3,136 features |
-| Dense hidden | 128 neurons, ReLU, Dropout |
-| Output | 62 classes |
+| `train.py` | EMNIST loading, CNN definition, augmentation, training, validation, and test evaluation |
+| `predict.py` | Command-line prediction for one character image |
+| `streamlit_app.py` | Drawing/upload UI, connected-component segmentation, and sequence predictions |
+| `emnist_byclass_cnn.pth` | Trained 62-class model weights |
+| `outputs/emnist_metrics.json` | Recorded test and validation metrics |
+| `outputs/emnist_*_curve.png` | Training and validation curves |
+| `requirements.txt` | Python dependencies other than PyTorch |
 
-## Accuracy
+## Implementation guide
 
-The old **99.27%** result was measured on MNIST digits only. It does **not** apply to the new EMNIST model, which recognizes 62 digit/letter classes. No EMNIST accuracy is claimed before you run the new training script.
+### 1. Get the project
 
-After training, the script prints the EMNIST ByClass test accuracy and writes the measured results to `outputs/emnist_metrics.json`. This is per-character test accuracy, not complete-sequence accuracy.
+```bash
+git clone https://github.com/TejasrinathreddySoma-beep/num_pred_cnn.git
+cd num_pred_cnn
+```
 
-## Windows setup
+### 2. Create an environment
 
-Create and activate a virtual environment:
+Windows PowerShell:
 
 ```powershell
 py -3.11 -m venv .venv
@@ -54,76 +86,62 @@ py -3.11 -m venv .venv
 python -m pip install --upgrade pip
 ```
 
-For a supported Intel GPU, install the PyTorch XPU wheels:
+macOS/Linux:
 
-```powershell
-python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/xpu
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
 ```
 
-For CPU-only PyTorch, use:
+### 3. Install PyTorch and dependencies
 
-```powershell
-python -m pip install torch torchvision torchaudio
-```
+Install a PyTorch build appropriate for your hardware using the [official PyTorch installation selector](https://pytorch.org/get-started/locally/). For a supported Intel GPU, follow the [PyTorch XPU installation guide](https://pytorch.org/docs/stable/notes/get_start_xpu.html). For CPU-only use, install the CPU build.
 
-Install the remaining dependencies:
+Then install the remaining packages:
 
-```powershell
+```bash
 python -m pip install -r requirements.txt
 ```
 
-PyTorch XPU support depends on your exact Intel processor/GPU and driver. The training script falls back to CPU if no supported accelerator is available.
+### 4. Train (optional)
 
-## Train the new EMNIST model
+The repository includes the trained weights, so you can run the app without retraining. To reproduce training:
 
-Pull the latest repository changes, then run:
-
-```powershell
+```bash
 python train.py
 ```
 
-The first run downloads EMNIST ByClass. It trains with augmentation, uses a validation split for early stopping, evaluates on the official test split, and saves:
+The first run downloads EMNIST ByClass automatically into `data/`. Training saves `emnist_byclass_cnn.pth` and refreshes the metrics and curve files under `outputs/`. On Windows or a memory-limited machine, set `EMNIST_WORKERS=0` before running if DataLoader workers cause resource problems.
 
-- `emnist_byclass_cnn.pth` — new 62-class model weights
-- `outputs/emnist_metrics.json` — measured test loss and accuracy
-- `outputs/emnist_accuracy_curve.png` and `outputs/emnist_loss_curve.png` — training curves
+### 5. Launch the application
 
-**Training note:** EMNIST ByClass is much larger than MNIST (nearly 700,000 training examples), so training can take considerably longer. Keep the terminal open until it reports the test accuracy and saved model. The model file is generated locally and is ignored by Git.
-
-## Run the Streamlit app
-
-After training completes:
-
-```powershell
+```bash
 streamlit run streamlit_app.py
 ```
 
-Choose **Draw characters** or **Upload image**. Write digits and/or letters with visible gaps, then click **Predict sequence**. The app shows the combined predicted string and the top 3 alternatives for every detected character. Use **Clear / reset** to start again.
+Open the local Streamlit URL shown in the terminal. Select **Draw characters** or **Upload image**, provide clearly separated characters, and click **Predict sequence**. The app shows the combined prediction and top-three alternatives with confidence values.
 
-### Segmentation limitations
+### 6. Run a single-character prediction
 
-The current sequence reader uses connected components. Characters that touch or overlap may be grouped into one region. Dots on lowercase `i` and `j`, or detached strokes, may be treated as separate components. Leave a visible gap between characters. This first version is intended for separated handwritten characters, not cursive handwriting or joined-up words.
-
-## Command-line prediction
-
-For one character per image:
-
-```powershell
-python predict.py path\to\character.png
+```bash
+python predict.py path/to/character.png
 ```
 
-## Project files
+Use an image containing one centered character for the command-line predictor.
 
-- `train.py` — EMNIST ByClass dataset, 62-class CNN, augmentation, training and evaluation
-- `predict.py` — command-line prediction for one character
-- `streamlit_app.py` — drawing/upload interface, segmentation and sequence prediction
-- `requirements.txt` — Python dependencies (install PyTorch separately)
-- `outputs/emnist_metrics.json` — generated evaluation metrics
-- `emnist_byclass_cnn.pth` — locally generated trained model weights
+## Known limitations and next improvements
+
+- Touching characters may merge into one component; detached dots or strokes (notably `i` and `j`) may be detected separately.
+- The current segmentation assumes a mostly horizontal sequence and does not infer word spacing reliably.
+- Similar-looking classes (for example, uppercase/lowercase pairs) remain challenging.
+- The reported metric is per-character accuracy; evaluate sequence-level accuracy separately before using this in a production workflow.
+
+Potential next steps are improved character grouping, word-level spacing, a sequence model, and evaluation on handwriting collected outside EMNIST.
 
 ## References
 
-- [EMNIST dataset paper and information](https://www.nist.gov/itl/products-and-services/emnist-dataset)
+- [NIST — EMNIST dataset](https://www.nist.gov/itl/products-and-services/emnist-dataset)
 - [Torchvision EMNIST documentation](https://pytorch.org/vision/stable/generated/torchvision.datasets.EMNIST.html)
-- [PyTorch Intel GPU guide](https://docs.pytorch.org/docs/stable/notes/get_start_xpu.html)
+- [PyTorch installation](https://pytorch.org/get-started/locally/)
 - [Streamlit documentation](https://docs.streamlit.io/)

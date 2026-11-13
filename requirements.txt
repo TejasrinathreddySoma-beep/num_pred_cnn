@@ -1,5 +1,4 @@
-# Install torch and torchvision separately using the Intel XPU wheel index.
-# See the Windows 11 + Intel GPU instructions in README.md.
+# Install PyTorch separately using https://pytorch.org/get-started/locally/
 numpy>=1.24
 matplotlib>=3.7
 scikit-learn>=1.3

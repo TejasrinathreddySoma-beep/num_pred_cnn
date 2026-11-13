@@ -1,15 +1,19 @@
-
 # Python
 __pycache__/
 *.py[cod]
 .venv/
+.env
 
 # IDE
 .idea/
+.vscode/
 
-# Dataset
+# Downloaded datasets
 data/
 
-# Generated model weights
-mnist_cnn.pth
+# Generated model checkpoints
+*.pth
 
+# OS/editor noise
+.DS_Store
+Thumbs.db
